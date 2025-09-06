@@ -1,6 +1,8 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\WebAuthn\WebAuthnLoginController;
+use App\Http\Controllers\WebAuthn\WebAuthnRegisterController;
 
 /*
 |--------------------------------------------------------------------------
@@ -13,6 +15,22 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::get('/', function () {
-    return view('welcome');
+
+Route::middleware('guest')->group(function () {
+    // Register dengan Face ID
+    Route::get('/register/webauthn/options', [WebAuthnRegisterController::class, 'options']);
+    Route::post('/register/webauthn', [WebAuthnRegisterController::class, 'create']);
+
+    // Login otomatis Face ID
+    Route::get('/auth', function () {
+        return view('auth.login');
+    })->name('login');
+    Route::get('/login/webauthn/options', [WebAuthnLoginController::class, 'options']);
+    Route::post('/login/webauthn', [WebAuthnLoginController::class, 'login']);
+});
+
+Route::middleware('auth')->group(function () {
+    Route::get('/', function () {
+        return view('welcome');
+    });
 });
