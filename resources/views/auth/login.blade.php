@@ -145,6 +145,9 @@
                                 </div>`
                     }, 500)
                     setTimeout(() => {
+                        popover.hidePopover()
+                    }, 2500)
+                    setTimeout(() => {
                         document.location.href = "/"
                     }, 3000)
                 }
