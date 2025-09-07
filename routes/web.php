@@ -29,12 +29,15 @@ Route::post('/login', [AuthController::class, 'authentication']);
 
 Route::get('/auth', function () {
     return view('auth.login');
-})->name('login');
+})->middleware('guest')->name('login');
 Route::middleware('auth')->group(function () {
     Route::get('/auth/register', function () {
         return view('auth.register');
     });
     Route::get('/', function () {
+        return view('welcome');
+    });
+    Route::get('/home', function () {
         return view('welcome');
     });
 });

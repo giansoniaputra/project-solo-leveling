@@ -108,9 +108,9 @@
         })
 
         document.querySelector("#prossess").addEventListener('click', function() {
+            const popover = document.querySelector('.modal')
             let bodyy = document.querySelector('#modal-body')
             let bodyG = document.querySelector('#modal-body-glitch')
-            const popover = document.querySelector('.modal')
             let input = document.querySelectorAll("#modal-body .input");
             let token = document.querySelector("input[name='token']").value;
             let angka = '';
@@ -127,7 +127,26 @@
                 , type: "POST"
                 , dataType: 'json'
                 , success: function(response) {
-                    console.log(response);
+                    setTimeout(() => {
+                        popover.showPopover()
+                        bodyy.innerHTML =
+                            `
+                        <div class="mb-3" style="margin:10px 0">
+                            <label for="" class="form-label">Selemat Datang Player.</label>
+                            </div>
+                            </div>
+
+                            `
+                        bodyG.innerHTML =
+                            `
+                            <div class="mb-3" style="margin:10px 0">
+                                <label for="" class="form-label">Selemat Datang Player.</label>
+                                </div>
+                                </div>`
+                    }, 500)
+                    setTimeout(() => {
+                        document.location.href = "/"
+                    }, 3000)
                 }
                 , error: function(response) {
                     console.log(response.responseJSON.errors);
