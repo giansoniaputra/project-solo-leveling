@@ -54,7 +54,7 @@
     </style>
 </head>
 <body>
-    <button class="cyber-btn" id="daily-quest" popovertarget="upgrade" popovertargetaction="show" aria-label="Upgrade" data-action="Upgrade">
+    <button class="cyber-btn" id="btn-login" popovertarget="upgrade" popovertargetaction="show" aria-label="Upgrade" data-action="Upgrade">
         <span class="backdrop">
             <span class="corner"></span>
         </span>
@@ -91,13 +91,28 @@
     <script type="module" src="/assets-front-end/script.js"></script>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script>
-        let bodyy = document.querySelector('#modal-body')
-        let bodyG = document.querySelector('#modal-body-glitch')
-        const popover = document.querySelector('.modal')
-        let input = document.querySelectorAll(".input");
-        let token = document.querySelector("input[name='token']").value;
-        let inputs = document.querySelectorAll(".input");
+        let renderModal = () => {
+            $.ajax({
+                url: "/render-modal-otp"
+                , type: "GET"
+                , dataType: 'json'
+                , success: function(response) {
+                    $("#modal-body").html(response.data[0])
+                    $("#modal-body-glitch").html(response.data[1])
+                }
+            });
+        }
+        renderModal()
+        $("#btn-login").on('click', function() {
+            renderModal()
+        })
+
         document.querySelector("#prossess").addEventListener('click', function() {
+            let bodyy = document.querySelector('#modal-body')
+            let bodyG = document.querySelector('#modal-body-glitch')
+            const popover = document.querySelector('.modal')
+            let input = document.querySelectorAll("#modal-body .input");
+            let token = document.querySelector("input[name='token']").value;
             let angka = '';
             input.forEach((a) => {
                 angka += a.value;
@@ -138,31 +153,6 @@
             });
 
         })
-
-        inputs.forEach((input, index) => {
-            input.addEventListener("input", () => {
-                // kalau user isi sesuatu
-                if (input.value) {
-                    if (inputs[index + 1]) {
-                        inputs[index + 1].disabled = false;
-                        inputs[index + 1].focus();
-                    }
-                } else {
-                    // kalau dikosongkan, disable semua setelahnya
-                    for (let i = index + 1; i < inputs.length; i++) {
-                        inputs[i].value = "";
-                        inputs[i].disabled = true;
-                    }
-                }
-            });
-
-            // kalau tekan backspace dan input kosong, balik ke sebelumnya
-            input.addEventListener("keydown", (e) => {
-                if (e.key === "Backspace" && !input.value && inputs[index - 1]) {
-                    inputs[index - 1].focus();
-                }
-            });
-        });
 
     </script>
 </body>

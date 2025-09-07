@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ModalController;
 use Laragear\WebAuthn\Http\Routes as WebAuthnRoutes;
 use App\Http\Controllers\WebAuthn\WebAuthnRegisterController;
 
