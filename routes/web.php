@@ -1,7 +1,10 @@
 <?php
 
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\WebAuthn\WebAuthnLoginController;
+use App\Http\Controllers\AuthController;
+use Laragear\WebAuthn\Http\Routes as WebAuthnRoutes;
 use App\Http\Controllers\WebAuthn\WebAuthnRegisterController;
 
 /*
@@ -14,23 +17,30 @@ use App\Http\Controllers\WebAuthn\WebAuthnRegisterController;
 | be assigned to the "web" middleware group. Make something great!
 |
 */
-
-
-Route::middleware('guest')->group(function () {
-    // Register dengan Face ID
-    Route::get('/register/webauthn/options', [WebAuthnRegisterController::class, 'options']);
-    Route::post('/register/webauthn', [WebAuthnRegisterController::class, 'create']);
-
-    // Login otomatis Face ID
-    Route::get('/auth', function () {
-        return view('auth.login');
-    })->name('login');
-    Route::get('/login/webauthn/options', [WebAuthnLoginController::class, 'options']);
-    Route::post('/login/webauthn', [WebAuthnLoginController::class, 'login']);
+// Route WebAuthn
+WebAuthnRoutes::register();
+Route::get('/login', function () {
+    return view('auth.initial-login');
 });
+Route::post('/login', [AuthController::class, 'authentication']);
 
+
+
+Route::get('/auth', function () {
+    return view('auth.login');
+})->name('login');
 Route::middleware('auth')->group(function () {
+    Route::get('/auth/register', function () {
+        return view('auth.register');
+    });
     Route::get('/', function () {
         return view('welcome');
     });
+});
+
+Route::get('/logout', function (Request $request) {
+    Auth::logout();
+    $request->session()->invalidate();
+    $request->session()->regenerateToken();
+    return redirect('/auth'); // Or wherever you want to redirect after logout
 });

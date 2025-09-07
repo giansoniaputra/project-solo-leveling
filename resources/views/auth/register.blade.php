@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <link rel="stylesheet" href="/assets-front-end/style.css">
-    <title>Login</title>
+    <title>Document</title>
 </head>
 <body>
     <button class="cyber-btn" id="daily-quest" popovertarget="upgrade" popovertargetaction="show" aria-label="Upgrade" data-action="Upgrade">
@@ -13,7 +13,7 @@
             <span class="corner"></span>
         </span>
         <kbd>U</kbd>
-        <span>Daily Quest</span>
+        <span>Register</span>
         <div class="glitch" aria-hidden="true">
             <span class="backdrop">
                 <span class="corner"></span>
@@ -30,29 +30,7 @@
             </span>
         </div>
     </button>
-    <button class="cyber-btn" id="main-quest" popovertarget="upgrade" popovertargetaction="show" aria-label="Upgrade" data-action="Upgrade">
-        <span class="backdrop">
-            <span class="corner"></span>
-        </span>
-        <kbd>U</kbd>
-        <span>Main Quest</span>
-        <div class="glitch" aria-hidden="true">
-            <span class="backdrop">
-                <span class="corner"></span>
-            </span>
-            <kbd>U</kbd>
-            <span class="letters">
-                <span>U</span>
-                <span>p</span>
-                <span>g</span>
-                <span>r</span>
-                <span>a</span>
-                <span>d</span>
-                <span>e</span>
-            </span>
-        </div>
-    </button>
-    @include('modal')
+    @include('modal-register')
     <a aria-label="Follow Jhey" class="bear-link" href="https://twitter.com/intent/follow?screen_name=jh3yy" target="_blank" rel="noreferrer noopener">
         <svg class="w-9" viewBox="0 0 969 955" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="161.191" cy="320.191" r="133.191" stroke="currentColor" stroke-width="20"></circle>
@@ -65,50 +43,5 @@
         </svg>
     </a>
     <script type="module" src="/assets-front-end/script.js"></script>
-    <script>
-        let button = document.querySelector('#daily-quest')
-        let buttonM = document.querySelector('#main-quest')
-        let title = document.querySelector('#modal-title')
-        let titleG = document.querySelector('#modal-title-glitch')
-        let bodyy = document.querySelector('#modal-body')
-        let bodyG = document.querySelector('#modal-body-glitch')
-        button.addEventListener('click', function() {
-            title.innerHTML = `Dayly Quest`
-            titleG.innerHTML = `Dayly Quest`
-            bodyy.innerHTML =
-                `
-                <div class="mb-3" style="margin:10px 0">
-                    <input
-                    type="checkbox"
-                    class="form-control"
-                    name=""
-                    id=""
-                    aria-describedby="helpId"
-                    placeholder=""
-                    />
-                    <label for="" class="form-label">[0/100] Push UP</label>
-                </div>
-                <div class="mb-3" style="margin:10px 0">
-
-                    <input
-                        type="checkbox"
-                        class="form-control"
-                        name=""
-                        id=""
-                        aria-describedby="helpId"
-                        placeholder=""
-                        value="[0/100] Sit up"
-                    />
-                    <label for="" class="form-label">[0/100] Sit Up</label>
-                </div>
-
-                `
-        })
-        buttonM.addEventListener('click', function() {
-            title.innerHTML = `Main Quest`
-            titleG.innerHTML = `Main Quest`
-        })
-
-    </script>
 </body>
 </html>

@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\ServiceProvider;
+use Laragear\WebAuthn\WebAuthn;
 
 return [
 
@@ -182,7 +183,7 @@ return [
     */
 
     'aliases' => Facade::defaultAliases()->merge([
-        // 'Example' => App\Facades\Example::class,
+        // 'WebAuthn' => Laragear\WebAuthn\Facades\WebAuthn::class
     ])->toArray(),
 
 ];
