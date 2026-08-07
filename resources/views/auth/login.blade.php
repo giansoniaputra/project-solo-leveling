@@ -5,56 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <link rel="stylesheet" href="/assets-front-end/style.css">
-    <title>Document</title>
-    <style>
-        .otp-container {
-            background-color: #111827;
-            padding: 30px;
-            border-radius: 12px;
-            text-align: center;
-            color: white;
-        }
-
-        .otp-container h2 {
-            margin-bottom: 20px;
-        }
-
-        .otp-input {
-            width: 40px;
-            height: 50px;
-            margin: 0 5px;
-            text-align: center;
-            font-size: 20px;
-            border: 1px solid #444;
-            border-radius: 5px;
-            background: #000;
-            color: white;
-        }
-
-        .otp-input:focus {
-            border-color: #3b82f6;
-            outline: none;
-        }
-
-        .verify-btn {
-            margin-top: 20px;
-            padding: 10px 20px;
-            background-color: #3b82f6;
-            border: none;
-            color: white;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 16px;
-        }
-
-        .verify-btn:hover {
-            background-color: #2563eb;
-        }
-
-    </style>
+    <title>Login</title>
 </head>
 <body>
-    <button class="cyber-btn" id="btn-login" popovertarget="upgrade" popovertargetaction="show" aria-label="Upgrade" data-action="Upgrade">
+    <button class="cyber-btn" id="btn-login" popovertarget="upgrade" popovertargetaction="show" aria-label="Login" data-action="Login">
         <span class="backdrop">
             <span class="corner"></span>
         </span>
@@ -132,7 +86,7 @@
                         bodyy.innerHTML =
                             `
                         <div class="mb-3" style="margin:10px 0">
-                            <label for="" class="form-label">Selemat Datang Player.</label>
+                            <label for="" class="form-label">Welcome, Player.</label>
                             </div>
                             </div>
 
@@ -140,7 +94,7 @@
                         bodyG.innerHTML =
                             `
                             <div class="mb-3" style="margin:10px 0">
-                                <label for="" class="form-label">Selemat Datang Player.</label>
+                                <label for="" class="form-label">Welcome, Player.</label>
                                 </div>
                                 </div>`
                     }, 500)

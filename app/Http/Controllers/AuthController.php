@@ -15,17 +15,17 @@ class AuthController extends Controller
                 'password' => 'required'
             ],
             [
-                'name.required' => 'Kode akses diperlukan!',
-                'password.required' => 'Kode akses diperlukan!'
+                'name.required' => 'Access code is required!',
+                'password.required' => 'Access code is required!'
             ]
         );
 
         if (Auth::attempt($credenential)) {
             $request->session()->regenerate();
-            return response()->json(['success' => 'Berhasil Login']);
+            return response()->json(['success' => 'Login successful']);
         }
 
-        return response()->json(['message' => 'Kesalahan pada kode akses!'])->setStatusCode(400);
+        return response()->json(['message' => 'Invalid access code!'])->setStatusCode(400);
     }
     public function register(Request $request)
     {

@@ -11,9 +11,15 @@
         input.addEventListener("input", () => {
             // kalau user isi sesuatu
             if (input.value) {
-                if (document.querySelectorAll(".input")[index + 1]) {
-                    document.querySelectorAll(".input")[index + 1].disabled = false;
-                    document.querySelectorAll(".input")[index + 1].focus();
+                let allInputs = document.querySelectorAll(".input");
+                if (allInputs[index + 1]) {
+                    allInputs[index + 1].disabled = false;
+                    allInputs[index + 1].focus();
+                } else {
+                    // kotak terakhir terisi — otomatis proses login
+                    setTimeout(() => {
+                        document.querySelector("#prossess")?.click();
+                    }, 150);
                 }
             } else {
                 // kalau dikosongkan, disable semua setelahnya

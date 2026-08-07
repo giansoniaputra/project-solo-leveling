@@ -5,6 +5,9 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ModalController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\QuestController;
+use App\Http\Controllers\VoiceController;
 use Laragear\WebAuthn\Http\Routes as WebAuthnRoutes;
 use App\Http\Controllers\WebAuthn\WebAuthnRegisterController;
 
@@ -40,6 +43,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/home', function () {
         return view('welcome');
     });
+
+    Route::get('/quests', [QuestController::class, 'index']);
+    Route::post('/quests/generate', [QuestController::class, 'generate']);
+    Route::post('/quests/{quest}/complete', [QuestController::class, 'complete']);
+    Route::get('/penalties/check', [QuestController::class, 'checkPenalties']);
+    Route::post('/status', [ProfileController::class, 'updateStatus']);
+    Route::post('/voice/speak', [VoiceController::class, 'speak']);
 });
 
 Route::get('/logout', function (Request $request) {

@@ -4,6 +4,7 @@
 /public/hot
 /public/storage
 /storage/*.key
+/storage/app/voice-cache
 /vendor
 .env
 .env.backup
