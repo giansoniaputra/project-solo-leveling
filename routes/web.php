@@ -22,7 +22,7 @@ use App\Http\Controllers\WebAuthn\WebAuthnRegisterController;
 |
 */
 // Route WebAuthn
-WebAuthnRoutes::register();
+Laragear\WebAuthn\Http\Routes::register();
 Route::get('/login', function () {
     return view('auth.initial-login');
 });
