@@ -148,6 +148,8 @@
         let accumulatedQuestion = '';
         let confirmTimer = null;
         let currentAnswer = null; // { question, text, sourceTitle, sourceUrl, lang }
+        let awaitingPurchaseConfirmation = false;
+        let pendingPurchaseId = null;
 
         // Wrapping every content swap in a fresh .quest-anim element replays
         // the fade/slide-in keyframe (new nodes always start their animation).
@@ -435,6 +437,22 @@
             });
         }
 
+        function purchaseItem(itemId) {
+            $.ajax({
+                url: '/shop/' + itemId + '/purchase'
+                , type: 'POST'
+                , dataType: 'json'
+                , success: function(response) {
+                    enqueueSpeech(response.message);
+                    loadShop();
+                }
+                , error: function(response) {
+                    let msg = response.responseJSON ? response.responseJSON.message : 'Purchase failed.';
+                    enqueueSpeech(msg);
+                }
+            });
+        }
+
         function updateStatusDisplay(exp, level, stats, points) {
             let levelEl = document.querySelector('#status-level-value');
             let expEl = document.querySelector('#status-exp-value');
@@ -673,19 +691,18 @@
             let buyBtn = e.target.closest ? e.target.closest('.shop-buy-btn') : null;
             if (buyBtn && !buyBtn.disabled) {
                 let itemId = buyBtn.getAttribute('data-id');
-                $.ajax({
-                    url: '/shop/' + itemId + '/purchase'
-                    , type: 'POST'
-                    , dataType: 'json'
-                    , success: function(response) {
-                        enqueueSpeech(response.message);
-                        loadShop();
-                    }
-                    , error: function(response) {
-                        let msg = response.responseJSON ? response.responseJSON.message : 'Purchase failed.';
-                        enqueueSpeech(msg);
-                    }
-                });
+
+                // With Voice Mode on, Nova confirms before spending points —
+                // handleVoiceCommand's awaitingPurchaseConfirmation branch
+                // handles the "yes"/"no" reply. Without Voice Mode there's
+                // no way to answer her, so just buy it directly.
+                if (voiceEnabled) {
+                    pendingPurchaseId = itemId;
+                    awaitingPurchaseConfirmation = true;
+                    enqueueSpeech('Are you sure to buy this item, sir?');
+                } else {
+                    purchaseItem(itemId);
+                }
                 return;
             }
 
@@ -914,6 +931,23 @@
                     awaitingConfirmation = false;
                     accumulatedQuestion = '';
                     return enqueueSpeech('Cancelled, sir.');
+                }
+                return;
+            }
+
+            // "Are you sure to buy this item, sir?" — only "yes"/"no" mean
+            // anything here, same pattern as the ask-flow's confirmation.
+            if (awaitingPurchaseConfirmation) {
+                if (hasWord(text, 'yes')) {
+                    awaitingPurchaseConfirmation = false;
+                    let itemId = pendingPurchaseId;
+                    pendingPurchaseId = null;
+                    return purchaseItem(itemId);
+                }
+                if (hasWord(text, 'no')) {
+                    awaitingPurchaseConfirmation = false;
+                    pendingPurchaseId = null;
+                    return enqueueSpeech('Purchase cancelled, sir.');
                 }
                 return;
             }
