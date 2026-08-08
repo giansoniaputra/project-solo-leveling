@@ -756,11 +756,11 @@
                 return;
             }
 
-            // Only "yes"/"no" mean anything here — anything else is
-            // ignored and we keep waiting (awaitingConfirmation stays true).
-            // The mic is paused while "Is that all you need, sir?" plays
-            // (see processVoiceQueue), so it's only ever listening for the
-            // answer once she's actually finished asking.
+            // Only "yes"/"no"/"cancel" mean anything here — anything else
+            // is ignored and we keep waiting (awaitingConfirmation stays
+            // true). The mic is paused while "Is that all you need, sir?"
+            // plays (see processVoiceQueue), so it's only ever listening
+            // for the answer once she's actually finished asking.
             if (awaitingConfirmation) {
                 if (hasWord(text, 'yes')) {
                     awaitingConfirmation = false;
@@ -773,6 +773,11 @@
                     return enqueueSpeech('What else, sir?', function() {
                         awaitingQuestion = true;
                     });
+                }
+                if (hasWord(text, 'cancel')) {
+                    awaitingConfirmation = false;
+                    accumulatedQuestion = '';
+                    return enqueueSpeech('Cancelled, sir.');
                 }
                 return;
             }
