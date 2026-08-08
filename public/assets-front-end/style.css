@@ -217,6 +217,17 @@
         animation-duration: 2s;
         color: var(--shadow);
         z-index: -1;
+        /* No resting clip-path meant this had NO default hidden state —
+           script.js only sets clip-path while the "glitch" animation is
+           actively running (via animation-name), then removes that
+           property when it's done. Without a static fallback, clip-path
+           computed to "none" (fully visible) the rest of the time, so this
+           shadow-colored duplicate of the text sat permanently visible,
+           slightly offset, behind the real content — a constant "ghosting"
+           double-vision effect rather than the intended brief flicker.
+           --clip-four is the same collapsed/invisible shape the animation
+           itself ends on, so this matches its resting frame exactly. */
+        clip-path: var(--clip-four);
     }
 
     @keyframes glitch {
@@ -473,14 +484,22 @@
         transition-property: opacity, translate;
         transition-duration: 0.26s;
         transition-timing-function: ease-out;
-        /* Long dynamic content (the Shop list, a big quest list, ...) used
-           to just grow the whole popover past the viewport — since
-           .modal__actions is positioned at top:100% of that ever-growing
-           box, Cancel/Proceed would end up pushed off-screen with no way
-           to scroll down to them (popovers don't scroll the page under
-           them). Cap the content's own height and let IT scroll instead. */
+    }
+
+    /* Only applied by welcome.blade.php's setModalContent() when content
+       actually overflows the popover (e.g. the 8-item Shop list) — short
+       content (a single quest detail, a status summary) never gets capped
+       or scrolled at all, exactly like before. overflow-x is pinned to
+       hidden: setting only overflow-y:auto computes overflow-x to auto too
+       per the CSS overflow spec, which is what was producing the unwanted
+       horizontal scrollbar — vertical scrolling only, no sideways drift.
+       Both the real and .modal__glitch copies get this class together
+       (see the JS) and stay scroll-synced so the glitch animation's
+       slivers keep matching what's actually on screen. */
+    .modal .body__text.is-scrollable {
         max-height: min(50vh, 340px);
         overflow-y: auto;
+        overflow-x: hidden;
     }
 
     .modal .modal__actions {

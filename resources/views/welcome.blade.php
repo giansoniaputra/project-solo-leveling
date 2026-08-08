@@ -154,7 +154,29 @@
         function setModalContent(html) {
             bodyy.innerHTML = `<div class="quest-anim">${html}</div>`;
             bodyG.innerHTML = `<div class="quest-anim">${html}</div>`;
+            // Fresh content should start scrolled to the top, not wherever
+            // the previous content happened to leave off.
+            bodyy.scrollTop = 0;
+            bodyG.scrollTop = 0;
+
+            // Only cap/scroll when the content actually needs it (e.g. the
+            // 8-item Shop list) — measure bodyy's natural height *before*
+            // is-scrollable (and its max-height) is applied, since after
+            // capping, scrollHeight/clientHeight would no longer reflect
+            // how tall the content actually wants to be.
+            let maxHeight = Math.min(window.innerHeight * 0.5, 340);
+            let needsScroll = bodyy.scrollHeight > maxHeight;
+            bodyy.classList.toggle('is-scrollable', needsScroll);
+            bodyG.classList.toggle('is-scrollable', needsScroll);
         }
+
+        // #modal-body and its decorative #modal-body-glitch copy each have
+        // their own scrollbar (see style.css) — mirror scroll position from
+        // the real one onto the glitch one so the slivers its clip-path
+        // animation flashes always match what's actually on screen.
+        bodyy.addEventListener('scroll', function() {
+            bodyG.scrollTop = bodyy.scrollTop;
+        });
 
         function statLabel(stat) {
             if (!stat) return '';
