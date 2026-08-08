@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
 class VoiceController extends Controller
@@ -20,7 +21,13 @@ class VoiceController extends Controller
     public function speak(Request $request)
     {
         $data = $request->validate([
-            'text' => 'required|string|max:500',
+            // Long enough for a full "ask" answer paragraph or its Indonesian
+            // translation — OpenAI TTS itself accepts up to ~4096 chars, so
+            // this stays well under that. Previously capped at 500, which
+            // silently fell back to the robotic browser voice for anything
+            // longer (the validation failure was swallowed by the frontend's
+            // error handler instead of surfacing as an obvious bug).
+            'text' => 'required|string|max:2000',
         ]);
 
         $path = 'voice-cache/'.md5($data['text'].'|'.self::VOICE.'|'.self::SPEED).'.mp3';
@@ -91,6 +98,107 @@ class VoiceController extends Controller
 
         if ($text === '') {
             return response()->json(['message' => 'The System had nothing to say.'], 502);
+        }
+
+        return response()->json(['text' => $text]);
+    }
+
+    /**
+     * "Friday, may I ask?" flow: answers an open-ended question with a real
+     * web search + citation. The installed openai-php/client SDK has no
+     * Responses API resource, so this calls it directly over HTTP with the
+     * web_search_preview tool (verified against the live API — returns
+     * genuine, dated, cited answers, not hallucinated sources).
+     */
+    public function ask(Request $request)
+    {
+        $data = $request->validate([
+            'question' => 'required|string|max:500',
+        ]);
+
+        $prompt = <<<PROMPT
+        Search the web and answer this question: {$data['question']}
+
+        Reply with ONE short, focused paragraph in plain English (2-4 sentences), suitable for text-to-speech —
+        no markdown, no bullet lists, no headings, no "highlights" or extra tangential news, just the direct answer.
+        Do NOT include inline citation links or parenthetical source mentions like "(site.com)" in the answer text
+        itself — the source is shown separately, so the spoken text must read as plain natural sentences only.
+        Base it on your single most authoritative source.
+        PROMPT;
+
+        try {
+            $response = Http::withToken(config('services.openai.key'))
+                ->timeout(30)
+                ->post('https://api.openai.com/v1/responses', [
+                    'model' => 'gpt-4o-mini',
+                    'tools' => [['type' => 'web_search_preview']],
+                    'tool_choice' => ['type' => 'web_search_preview'],
+                    'input' => $prompt,
+                ]);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed to reach the System (AI): '.$e->getMessage()], 502);
+        }
+
+        if (! $response->successful()) {
+            return response()->json(['message' => 'The System could not find an answer.'], 502);
+        }
+
+        $message = collect($response->json('output', []))
+            ->firstWhere('type', 'message');
+
+        $answer = trim($message['content'][0]['text'] ?? '');
+
+        // Defensive cleanup: strip any inline "([title](url))" citation
+        // markdown the model included despite being told not to — it reads
+        // badly out loud via TTS. The source is already returned separately.
+        $answer = trim(preg_replace('/\s*\(\[[^\]]*\]\([^)]*\)\)/', '', $answer));
+
+        if ($answer === '') {
+            return response()->json(['message' => 'The System did not return an answer.'], 502);
+        }
+
+        $citation = collect($message['content'][0]['annotations'] ?? [])
+            ->firstWhere('type', 'url_citation');
+
+        return response()->json([
+            'answer' => $answer,
+            'source_title' => $citation['title'] ?? null,
+            'source_url' => $citation['url'] ?? null,
+        ]);
+    }
+
+    /**
+     * Translates an already-generated answer in place (used by the
+     * "change bahasa" / "change english" voice commands) — no new search,
+     * just a rewrite of the existing text.
+     */
+    public function translate(Request $request)
+    {
+        $data = $request->validate([
+            'text' => 'required|string|max:2000',
+            'target_language' => 'required|in:en,id',
+        ]);
+
+        $languageName = $data['target_language'] === 'id' ? 'Bahasa Indonesia' : 'English';
+
+        $client = \OpenAI::client(config('services.openai.key'));
+
+        try {
+            $response = $client->chat()->create([
+                'model' => 'gpt-4o-mini',
+                'messages' => [
+                    ['role' => 'system', 'content' => "Translate the user's text into {$languageName}. Keep it natural and concise, suitable for text-to-speech. Reply with ONLY the translated text, nothing else."],
+                    ['role' => 'user', 'content' => $data['text']],
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed to translate: '.$e->getMessage()], 502);
+        }
+
+        $text = trim($response->choices[0]->message->content ?? '');
+
+        if ($text === '') {
+            return response()->json(['message' => 'Translation failed.'], 502);
         }
 
         return response()->json(['text' => $text]);

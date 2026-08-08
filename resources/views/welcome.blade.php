@@ -76,6 +76,7 @@
     @include('modal')
     @include('modal-quest-detail')
     @include('modal-status')
+    @include('modal-ask')
     <a aria-label="Follow Jhey" class="bear-link" href="https://twitter.com/intent/follow?screen_name=jh3yy" target="_blank" rel="noreferrer noopener">
         <svg class="w-9" viewBox="0 0 969 955" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="161.191" cy="320.191" r="133.191" stroke="currentColor" stroke-width="20"></circle>
@@ -111,6 +112,17 @@
         let qdBodyG = document.querySelector('#quest-detail-body-glitch');
         let qdProceed = document.querySelector('#quest-detail-proceed');
         let activeQuestId = null;
+
+        let askModal = document.querySelector('#ask-modal');
+        let askQuestion = document.querySelector('#ask-question');
+        let askQuestionG = document.querySelector('#ask-question-glitch');
+        let askAnswer = document.querySelector('#ask-answer');
+        let askAnswerG = document.querySelector('#ask-answer-glitch');
+        let askSource = document.querySelector('#ask-source');
+        let askSourceG = document.querySelector('#ask-source-glitch');
+        let askOpenReference = document.querySelector('#ask-open-reference');
+        let awaitingQuestion = false;
+        let currentAnswer = null; // { question, text, sourceTitle, sourceUrl, lang }
 
         // Wrapping every content swap in a fresh .quest-anim element replays
         // the fade/slide-in keyframe (new nodes always start their animation).
@@ -397,6 +409,87 @@
             });
         });
 
+        // ---- "Friday, may I ask?" — open-ended Q&A with a real web
+        // reference. Triggered from handleVoiceCommand() further down.
+        function renderAskModal() {
+            askQuestion.textContent = currentAnswer.question;
+            askQuestionG.textContent = currentAnswer.question;
+            askAnswer.textContent = currentAnswer.text;
+            askAnswerG.textContent = currentAnswer.text;
+
+            let sourceText = currentAnswer.sourceTitle ? 'Source: ' + currentAnswer.sourceTitle : '';
+            askSource.textContent = sourceText;
+            askSourceG.textContent = sourceText;
+
+            askOpenReference.disabled = !currentAnswer.sourceUrl;
+        }
+
+        function askSystem(question) {
+            enqueueSpeech('Let me look that up for you.');
+
+            $.ajax({
+                url: '/voice/ask'
+                , type: 'POST'
+                , data: {
+                    question: question
+                }
+                , dataType: 'json'
+                , success: function(response) {
+                    currentAnswer = {
+                        question: question
+                        , text: response.answer
+                        , sourceTitle: response.source_title
+                        , sourceUrl: response.source_url
+                        , lang: 'en'
+                    };
+                    renderAskModal();
+
+                    document.querySelector('#upgrade').hidePopover();
+                    askModal.showPopover();
+                    enqueueSpeech(response.answer);
+                }
+                , error: function(response) {
+                    let msg = response.responseJSON ? response.responseJSON.message : 'Sorry, I could not find an answer to that.';
+                    enqueueSpeech(msg);
+                }
+            });
+        }
+
+        function translateCurrentAnswer(targetLang) {
+            if (!currentAnswer) return;
+
+            if (currentAnswer.lang === targetLang) {
+                return enqueueSpeech(targetLang === 'id' ? 'This is already in Bahasa Indonesia.' : 'This is already in English.');
+            }
+
+            $.ajax({
+                url: '/voice/translate'
+                , type: 'POST'
+                , data: {
+                    text: currentAnswer.text
+                    , target_language: targetLang
+                }
+                , dataType: 'json'
+                , success: function(response) {
+                    currentAnswer.text = response.text;
+                    currentAnswer.lang = targetLang;
+                    renderAskModal();
+                    enqueueSpeech(response.text);
+                }
+                , error: function() {
+                    enqueueSpeech('Translation failed.');
+                }
+            });
+        }
+
+        askOpenReference.addEventListener('click', function() {
+            if (currentAnswer && currentAnswer.sourceUrl) {
+                window.open(currentAnswer.sourceUrl, '_blank');
+            } else {
+                enqueueSpeech('There is no reference available for this answer.');
+            }
+        });
+
         document.querySelector('#daily-quest').addEventListener('click', function() {
             loadQuests('daily');
         });
@@ -525,7 +618,7 @@
         let voiceEnabled = false;
         let voiceQueue = [];
         let voiceIsSpeaking = false;
-        let voiceSuppressRestart = false;
+        let currentAudioEl = null;
         let voiceRecognition = null;
         let voiceToggleBtn = document.querySelector('#voice-toggle-btn');
         let voiceIndicator = document.querySelector('#voice-indicator');
@@ -540,42 +633,59 @@
         // followed by the new quest list being read out). No-ops entirely
         // when Voice Mode is off, so call sites never need to check
         // voiceEnabled themselves.
-        function enqueueSpeech(message) {
+        //
+        // The microphone is deliberately left listening the whole time
+        // Nova is talking (not paused like an earlier version of this did)
+        // so a new command can interrupt her mid-sentence — see
+        // stopSpeaking() and its call at the top of handleVoiceCommand.
+        // Trade-off: on speakers (not headphones) Nova's own voice can
+        // occasionally get picked back up by the mic; in practice this is
+        // harmless unless it happens to contain an exact trigger phrase.
+        // onDone (optional) fires only once this specific message finishes
+        // playing — used to delay flipping state (like awaitingQuestion)
+        // until Nova has actually stopped talking, see handleVoiceCommand's
+        // "may i ask" branch. Without this, the mic (which now stays live
+        // through her own playback — see the note below) could pick up her
+        // own prompt as if it were the user's answer to it.
+        function enqueueSpeech(message, onDone) {
             if (!voiceEnabled) return;
-            voiceQueue.push(message);
+            voiceQueue.push({
+                text: message
+                , onDone: onDone || null
+            });
             processVoiceQueue();
+        }
+
+        // Cuts off whatever Nova is currently saying (and anything still
+        // queued behind it) immediately — used when a new voice command
+        // should take over right away instead of waiting its turn. Note
+        // this does NOT run the interrupted message's onDone callback
+        // (pause() doesn't fire "ended") — an interrupted prompt is meant
+        // to abandon its pending side effect, not complete it.
+        function stopSpeaking() {
+            voiceQueue = [];
+            if (currentAudioEl) {
+                currentAudioEl.pause();
+                currentAudioEl = null;
+            }
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            voiceIsSpeaking = false;
         }
 
         function processVoiceQueue() {
             if (voiceIsSpeaking) return;
-
-            if (voiceQueue.length === 0) {
-                voiceSuppressRestart = false;
-                if (voiceEnabled && voiceRecognition) {
-                    try {
-                        voiceRecognition.start();
-                    } catch (e) {
-                        // already running — ignore
-                    }
-                }
-                return;
-            }
+            if (voiceQueue.length === 0) return;
 
             voiceIsSpeaking = true;
-            voiceSuppressRestart = true;
-            if (voiceRecognition) {
-                try {
-                    voiceRecognition.stop();
-                } catch (e) {
-                    // already stopped — ignore
-                }
-            }
 
-            let message = voiceQueue.shift();
+            let item = voiceQueue.shift();
+            let message = item.text;
             voiceText.textContent = 'System: "' + message + '"';
 
             function done() {
+                currentAudioEl = null;
                 voiceIsSpeaking = false;
+                if (item.onDone) item.onDone();
                 processVoiceQueue();
             }
 
@@ -602,6 +712,7 @@
                 })
                 .then(function(blob) {
                     let audio = new Audio(URL.createObjectURL(blob));
+                    currentAudioEl = audio;
                     audio.onended = done;
                     audio.onerror = speakWithBrowserVoice;
                     audio.play();
@@ -629,9 +740,32 @@
         }
 
         function handleVoiceCommand(text) {
+            // Any newly recognized speech interrupts whatever Nova is
+            // currently saying — she never has to finish an explanation
+            // before reacting to the next command.
+            stopSpeaking();
+
+            // Whatever comes right after "Friday, may I ask?" is the
+            // question itself, not a command — capture it before anything
+            // else gets a chance to interpret it.
+            if (awaitingQuestion) {
+                awaitingQuestion = false;
+                return askSystem(text);
+            }
+
             if (text.includes('you up')) return enqueueSpeech('For you sir, always');
 
             if (text.includes('let\'s begin friday')) return enqueueSpeech('Okay sir, how can I help you this time?');
+
+            if (text.includes('may i ask')) {
+                // Only start listening for the actual question once this
+                // prompt has fully finished playing (see enqueueSpeech's
+                // onDone) — otherwise the mic can hear Nova asking this
+                // and mistake her own voice for the answer.
+                return enqueueSpeech('What are you asking for, sir?', function() {
+                    awaitingQuestion = true;
+                });
+            }
 
             if (text.includes('what is my status') || text.includes('my status')) {
                 if (document.querySelector('#status-modal:popover-open')) {
@@ -654,6 +788,19 @@
 
             let modal = document.querySelector('[popover]:popover-open');
             if (!modal) return;
+
+            if (modal.id === 'ask-modal') {
+                if (text.includes('search the reference') || text.includes('buka referensi') || text.includes('open reference')) {
+                    if (currentAnswer && currentAnswer.sourceUrl) {
+                        window.open(currentAnswer.sourceUrl, '_blank');
+                    } else {
+                        enqueueSpeech('There is no reference available for this answer.');
+                    }
+                    return;
+                }
+                if (text.includes('change bahasa')) return translateCurrentAnswer('id');
+                if (text.includes('change english')) return translateCurrentAnswer('en');
+            }
 
             if (hasWord(text, 'generate')) {
                 let btn = modal.querySelector('.generate-quest-btn');
@@ -717,7 +864,11 @@
             });
 
             voiceRecognition.addEventListener('end', function() {
-                if (voiceEnabled && !voiceSuppressRestart) {
+                // Recognition is never deliberately paused anymore (even
+                // while Nova is talking — see stopSpeaking()), so any time
+                // it stops on its own (silence timeout, etc.) just restart
+                // it as long as Voice Mode is still on.
+                if (voiceEnabled) {
                     try {
                         voiceRecognition.start();
                     } catch (e) {

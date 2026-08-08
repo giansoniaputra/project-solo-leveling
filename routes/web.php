@@ -51,6 +51,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/status', [ProfileController::class, 'updateStatus']);
     Route::post('/voice/speak', [VoiceController::class, 'speak']);
     Route::get('/voice/status-summary', [VoiceController::class, 'statusSummary']);
+    Route::post('/voice/ask', [VoiceController::class, 'ask']);
+    Route::post('/voice/translate', [VoiceController::class, 'translate']);
 });
 
 Route::get('/logout', function (Request $request) {
