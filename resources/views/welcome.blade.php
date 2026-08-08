@@ -122,6 +122,9 @@
         let askSourceG = document.querySelector('#ask-source-glitch');
         let askOpenReference = document.querySelector('#ask-open-reference');
         let awaitingQuestion = false;
+        let awaitingConfirmation = false;
+        let accumulatedQuestion = '';
+        let confirmTimer = null;
         let currentAnswer = null; // { question, text, sourceTitle, sourceUrl, lang }
 
         // Wrapping every content swap in a fresh .quest-anim element replays
@@ -745,12 +748,44 @@
             // before reacting to the next command.
             stopSpeaking();
 
-            // Whatever comes right after "Friday, may I ask?" is the
-            // question itself, not a command — capture it before anything
-            // else gets a chance to interpret it.
+            // Whatever comes right after "Friday, may I ask?" (or after
+            // "What else, sir?") is question text, not a command — accumulate
+            // it, then wait 5s of quiet before confirming instead of
+            // searching immediately, in case there's more to add.
             if (awaitingQuestion) {
                 awaitingQuestion = false;
-                return askSystem(text);
+                accumulatedQuestion = accumulatedQuestion ? accumulatedQuestion + ' ' + text : text;
+
+                clearTimeout(confirmTimer);
+                confirmTimer = setTimeout(function() {
+                    awaitingConfirmation = true;
+                    enqueueSpeech('Is that all you need, sir?');
+                }, 5000);
+                return;
+            }
+
+            // Only "yes"/"no" mean anything here — anything else is
+            // ignored and we keep waiting (awaitingConfirmation stays true).
+            // Setting this flag doesn't need to wait for the prompt to
+            // finish playing like awaitingQuestion does, because it only
+            // reacts to the exact words "yes"/"no" — Nova's own "Is that
+            // all you need, sir?" doesn't contain either, so there's no
+            // self-feedback risk, and a user who answers fast (interrupting
+            // her) is still caught correctly.
+            if (awaitingConfirmation) {
+                if (hasWord(text, 'yes')) {
+                    awaitingConfirmation = false;
+                    let question = accumulatedQuestion;
+                    accumulatedQuestion = '';
+                    return askSystem(question);
+                }
+                if (hasWord(text, 'no')) {
+                    awaitingConfirmation = false;
+                    return enqueueSpeech('What else, sir?', function() {
+                        awaitingQuestion = true;
+                    });
+                }
+                return;
             }
 
             if (text.includes('you up')) return enqueueSpeech('For you sir, always');
@@ -758,6 +793,7 @@
             if (text.includes('let\'s begin friday')) return enqueueSpeech('Okay sir, how can I help you this time?');
 
             if (text.includes('may i ask')) {
+                accumulatedQuestion = '';
                 // Only start listening for the actual question once this
                 // prompt has fully finished playing (see enqueueSpeech's
                 // onDone) — otherwise the mic can hear Nova asking this
