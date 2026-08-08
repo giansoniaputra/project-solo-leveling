@@ -785,6 +785,8 @@
 
             if (text.includes('you up')) return enqueueSpeech('For you sir, always');
 
+            if (text.includes('Hi Friday')) return enqueueSpeech('Hallo sir, What can I help you with today?');
+
             if (text.includes('let\'s begin friday')) return enqueueSpeech('Okay sir, how can I help you this time?');
 
             if (text.includes('may i ask')) {
