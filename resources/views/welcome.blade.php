@@ -258,7 +258,18 @@
                 <p class="quest-warning">WARNING: Failure to complete the daily quest will result in an appropriate <span class="danger-text">penalty</span>.</p>
             ` : '';
 
-            return timerHtml + rows + warning;
+            // Main Quest normally only offers the stat picker once (when the
+            // list is empty) — this button (and the "generate new quest"
+            // voice command) brings it back even with an active quest, so
+            // more than one can be worked on at a time.
+            let generateMore = type === 'main' ? `
+                <button type="button" class="cyber-btn generate-new-quest-btn" style="margin-top:10px;">
+                    <span class="backdrop"><span class="corner"></span></span>
+                    <span>Generate New Quest</span>
+                </button>
+            ` : '';
+
+            return timerHtml + rows + warning + generateMore;
         }
 
         function renderStatPicker() {
@@ -526,6 +537,10 @@
                         enqueueSpeech('Generate quest failed.');
                     }
                 });
+            }
+
+            if (e.target && e.target.classList.contains('generate-new-quest-btn')) {
+                setModalContent(renderStatPicker());
             }
 
             let statBtn = e.target.closest ? e.target.closest('.stat-choice-btn') : null;
@@ -833,6 +848,11 @@
                 }
                 if (text.includes('change bahasa')) return translateCurrentAnswer('id');
                 if (text.includes('change english')) return translateCurrentAnswer('en');
+            }
+
+            if (text.includes('generate new quest')) {
+                let btn = modal.querySelector('.generate-new-quest-btn');
+                if (btn) return btn.click();
             }
 
             if (hasWord(text, 'generate')) {
