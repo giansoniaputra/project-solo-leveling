@@ -48,7 +48,12 @@
         }
     }
 
-    [aria-label='Upgrade'] {
+    /* Was scoped to [aria-label='Upgrade'] — every button's aria-label was
+       later renamed to something descriptive (Daily Quest, Shop, ...), so
+       that selector stopped matching anything and the decorative ".glitch"
+       copy (meant to stay hidden until hover) rendered visible/overlapping
+       at all times. Match any cyber-btn that has one instead. */
+    .cyber-btn {
         --shimmy-distance: 5;
         --clip-one: polygon(0 2%,
                 100% 2%,
@@ -468,6 +473,14 @@
         transition-property: opacity, translate;
         transition-duration: 0.26s;
         transition-timing-function: ease-out;
+        /* Long dynamic content (the Shop list, a big quest list, ...) used
+           to just grow the whole popover past the viewport — since
+           .modal__actions is positioned at top:100% of that ever-growing
+           box, Cancel/Proceed would end up pushed off-screen with no way
+           to scroll down to them (popovers don't scroll the page under
+           them). Cap the content's own height and let IT scroll instead. */
+        max-height: min(50vh, 340px);
+        overflow-y: auto;
     }
 
     .modal .modal__actions {
@@ -965,6 +978,16 @@ div.tp-dfwv {
     .cyber-btn:disabled {
         opacity: 0.35;
         cursor: not-allowed;
+    }
+
+    /* The three dashboard nav buttons are plain body-level siblings (not a
+       flex/grid group with its own gap), so on narrow viewports — where
+       they stack instead of sitting inline — they'd otherwise touch with
+       zero space between them. */
+    #daily-quest,
+    #main-quest,
+    #shop-btn {
+        margin-bottom: 12px;
     }
 
     .shop-row .cyber-btn {
