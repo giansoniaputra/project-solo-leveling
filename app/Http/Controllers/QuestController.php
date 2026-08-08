@@ -61,6 +61,10 @@ class QuestController extends Controller
 
         $user = $request->user();
         $user->exp += (int) $quest->exp_reward;
+        // Points are a separate, spendable currency (see ShopController) —
+        // earned 1-for-1 with EXP, but decremented on shop purchases while
+        // EXP stays permanent for leveling.
+        $user->points += (int) $quest->exp_reward;
 
         if ($quest->stat && in_array($quest->stat, Quest::STATS, true)) {
             $user->{$quest->stat} += (int) $quest->stat_reward;
@@ -73,6 +77,7 @@ class QuestController extends Controller
             'message' => 'Quest completed!',
             'exp' => $user->exp,
             'level' => $user->level,
+            'points' => $user->points,
             'stat' => $quest->stat,
             'stat_reward' => $quest->stat_reward,
             'stats' => $this->statsPayload($user),

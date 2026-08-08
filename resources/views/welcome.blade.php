@@ -73,6 +73,28 @@
             </span>
         </div>
     </button>
+    <button class="cyber-btn" id="shop-btn" popovertarget="upgrade" popovertargetaction="show" aria-label="Shop" data-action="Shop">
+        <span class="backdrop">
+            <span class="corner"></span>
+        </span>
+        <kbd>U</kbd>
+        <span>Shop</span>
+        <div class="glitch" aria-hidden="true">
+            <span class="backdrop">
+                <span class="corner"></span>
+            </span>
+            <kbd>U</kbd>
+            <span class="letters">
+                <span>U</span>
+                <span>p</span>
+                <span>g</span>
+                <span>r</span>
+                <span>a</span>
+                <span>d</span>
+                <span>e</span>
+            </span>
+        </div>
+    </button>
     @include('modal')
     @include('modal-quest-detail')
     @include('modal-status')
@@ -342,7 +364,56 @@
             });
         }
 
-        function updateStatusDisplay(exp, level, stats) {
+        // ---- Shop ----
+        // Reuses the same #upgrade content modal as Daily/Main Quest
+        // (currentType just becomes 'shop') instead of a separate popover,
+        // so it gets the same open/close animation and glitch effect for
+        // free.
+        function renderShopList(items, points) {
+            if (!items.length) {
+                return '<div class="quest-empty"><p>The shop is empty.</p></div>';
+            }
+
+            let balance = `<p class="quest-exp">Your points: ${points}</p>`;
+
+            let rows = items.map(function(item) {
+                let affordable = points >= item.cost;
+                return `
+                    <div class="quest-row shop-row">
+                        <div class="quest-info">
+                            <span class="quest-title">${item.emoji ? item.emoji + ' ' : ''}${item.name}</span>
+                            <span class="quest-desc">${item.description}</span>
+                            <span class="quest-exp">${item.cost} pts</span>
+                        </div>
+                        <button type="button" class="cyber-btn shop-buy-btn" data-id="${item.id}" ${affordable ? '' : 'disabled'}>
+                            <span class="backdrop"><span class="corner"></span></span>
+                            <span>Buy</span>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+
+            return balance + rows;
+        }
+
+        function loadShop() {
+            currentType = 'shop';
+            title.innerHTML = 'Shop';
+            titleG.innerHTML = 'Shop';
+            clearQuestTimer();
+            setModalContent('Loading...');
+
+            $.ajax({
+                url: '/shop'
+                , type: 'GET'
+                , dataType: 'json'
+                , success: function(response) {
+                    setModalContent(renderShopList(response.items, response.points));
+                }
+            });
+        }
+
+        function updateStatusDisplay(exp, level, stats, points) {
             let levelEl = document.querySelector('#status-level-value');
             let expEl = document.querySelector('#status-exp-value');
             let fillEl = document.querySelector('#status-exp-fill');
@@ -357,6 +428,11 @@
                     let el = document.querySelector('#status-' + (key === 'intelligence' ? 'int' : key) + '-value');
                     if (el) el.textContent = stats[key];
                 });
+            }
+
+            if (points !== undefined) {
+                let pointsEl = document.querySelector('#status-points-value');
+                if (pointsEl) pointsEl.textContent = points;
             }
         }
 
@@ -405,11 +481,11 @@
                     questDetail.hidePopover();
                     document.querySelector('#upgrade').showPopover();
                     clearQuestTimer();
-                    updateStatusDisplay(response.exp, response.level, response.stats);
+                    updateStatusDisplay(response.exp, response.level, response.stats, response.points);
                     setModalContent(`
                         <div class="quest-empty">
                             <p>${response.message}</p>
-                            <p class="quest-exp">EXP: ${response.exp} | Level: ${response.level}</p>
+                            <p class="quest-exp">EXP: ${response.exp} | Level: ${response.level} | Points: ${response.points}</p>
                         </div>
                     `);
                     setTimeout(() => loadQuests(currentType), 1500);
@@ -510,6 +586,9 @@
         document.querySelector('#main-quest').addEventListener('click', function() {
             loadQuests('main');
         });
+        document.querySelector('#shop-btn').addEventListener('click', function() {
+            loadShop();
+        });
 
         document.querySelector('#upgrade').addEventListener('toggle', function(e) {
             if (e.newState === 'closed') clearQuestTimer();
@@ -569,8 +648,27 @@
                 });
             }
 
+            let buyBtn = e.target.closest ? e.target.closest('.shop-buy-btn') : null;
+            if (buyBtn && !buyBtn.disabled) {
+                let itemId = buyBtn.getAttribute('data-id');
+                $.ajax({
+                    url: '/shop/' + itemId + '/purchase'
+                    , type: 'POST'
+                    , dataType: 'json'
+                    , success: function(response) {
+                        enqueueSpeech(response.message);
+                        loadShop();
+                    }
+                    , error: function(response) {
+                        let msg = response.responseJSON ? response.responseJSON.message : 'Purchase failed.';
+                        enqueueSpeech(msg);
+                    }
+                });
+                return;
+            }
+
             let row = e.target.closest ? e.target.closest('.quest-row') : null;
-            if (row) {
+            if (row && !row.classList.contains('shop-row')) {
                 let id = Number(row.getAttribute('data-id'));
                 let quest = currentQuests.find(q => q.id === id);
                 if (quest) openQuestDetail(quest);
@@ -832,6 +930,10 @@
             if (hasWord(text, 'open status')) {
                 document.querySelector('#status-btn').click();
                 return enqueueSpeech('Open the status');
+            }
+            if (hasWord(text, 'open shop')) {
+                document.querySelector('#shop-btn').click();
+                return enqueueSpeech('Open the shop');
             }
 
             let modal = document.querySelector('[popover]:popover-open');

@@ -48,6 +48,10 @@
                     <span class="status-label">INT</span>
                     <span class="status-value" id="status-int-value">{{ $user->intelligence }}</span>
                 </div>
+                <div class="status-row">
+                    <span class="status-label">Points</span>
+                    <span class="status-value" id="status-points-value">{{ $user->points }}</span>
+                </div>
 
                 <form id="status-form">
                     <div class="status-row status-row--input">

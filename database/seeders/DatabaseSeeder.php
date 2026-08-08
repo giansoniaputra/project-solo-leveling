@@ -27,5 +27,7 @@ class DatabaseSeeder extends Seeder
             'password' => Hash::make(13227)
 
         ]);
+
+        $this->call(ShopItemSeeder::class);
     }
 }

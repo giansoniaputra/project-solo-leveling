@@ -960,6 +960,18 @@ div.tp-dfwv {
         }
     }
 
+    /* Generic disabled state for cyber-btn (e.g. shop items you can't
+       afford yet, or the quest-detail Proceed button while submitting). */
+    .cyber-btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+    }
+
+    .shop-row .cyber-btn {
+        width: auto;
+        padding: 0.5rem 0.9rem;
+    }
+
     /* Quest checklist rows (click a row to open its full detail) */
     .quest-row {
         display: flex;
