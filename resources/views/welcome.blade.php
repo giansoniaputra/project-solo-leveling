@@ -621,7 +621,7 @@
         let voiceEnabled = false;
         let voiceQueue = [];
         let voiceIsSpeaking = false;
-        let currentAudioEl = null;
+        let voiceSuppressRestart = false;
         let voiceRecognition = null;
         let voiceToggleBtn = document.querySelector('#voice-toggle-btn');
         let voiceIndicator = document.querySelector('#voice-indicator');
@@ -637,19 +637,15 @@
         // when Voice Mode is off, so call sites never need to check
         // voiceEnabled themselves.
         //
-        // The microphone is deliberately left listening the whole time
-        // Nova is talking (not paused like an earlier version of this did)
-        // so a new command can interrupt her mid-sentence — see
-        // stopSpeaking() and its call at the top of handleVoiceCommand.
-        // Trade-off: on speakers (not headphones) Nova's own voice can
-        // occasionally get picked back up by the mic; in practice this is
-        // harmless unless it happens to contain an exact trigger phrase.
-        // onDone (optional) fires only once this specific message finishes
+        // The microphone is paused for the whole time anything is playing
+        // (see processVoiceQueue) so it never picks up Nova's own voice —
+        // an earlier version left it listening for mid-sentence interrupts,
+        // but that caused her to occasionally mishear herself as a command.
+        //
+        // onDone (optional) fires once this specific message finishes
         // playing — used to delay flipping state (like awaitingQuestion)
-        // until Nova has actually stopped talking, see handleVoiceCommand's
-        // "may i ask" branch. Without this, the mic (which now stays live
-        // through her own playback — see the note below) could pick up her
-        // own prompt as if it were the user's answer to it.
+        // until after the prompt is fully spoken and the mic is listening
+        // again, e.g. handleVoiceCommand's "may i ask" branch.
         function enqueueSpeech(message, onDone) {
             if (!voiceEnabled) return;
             voiceQueue.push({
@@ -659,34 +655,36 @@
             processVoiceQueue();
         }
 
-        // Cuts off whatever Nova is currently saying (and anything still
-        // queued behind it) immediately — used when a new voice command
-        // should take over right away instead of waiting its turn. Note
-        // this does NOT run the interrupted message's onDone callback
-        // (pause() doesn't fire "ended") — an interrupted prompt is meant
-        // to abandon its pending side effect, not complete it.
-        function stopSpeaking() {
-            voiceQueue = [];
-            if (currentAudioEl) {
-                currentAudioEl.pause();
-                currentAudioEl = null;
-            }
-            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-            voiceIsSpeaking = false;
-        }
-
         function processVoiceQueue() {
             if (voiceIsSpeaking) return;
-            if (voiceQueue.length === 0) return;
+
+            if (voiceQueue.length === 0) {
+                voiceSuppressRestart = false;
+                if (voiceEnabled && voiceRecognition) {
+                    try {
+                        voiceRecognition.start();
+                    } catch (e) {
+                        // already running — ignore
+                    }
+                }
+                return;
+            }
 
             voiceIsSpeaking = true;
+            voiceSuppressRestart = true;
+            if (voiceRecognition) {
+                try {
+                    voiceRecognition.stop();
+                } catch (e) {
+                    // already stopped — ignore
+                }
+            }
 
             let item = voiceQueue.shift();
             let message = item.text;
             voiceText.textContent = 'System: "' + message + '"';
 
             function done() {
-                currentAudioEl = null;
                 voiceIsSpeaking = false;
                 if (item.onDone) item.onDone();
                 processVoiceQueue();
@@ -715,7 +713,6 @@
                 })
                 .then(function(blob) {
                     let audio = new Audio(URL.createObjectURL(blob));
-                    currentAudioEl = audio;
                     audio.onended = done;
                     audio.onerror = speakWithBrowserVoice;
                     audio.play();
@@ -743,11 +740,6 @@
         }
 
         function handleVoiceCommand(text) {
-            // Any newly recognized speech interrupts whatever Nova is
-            // currently saying — she never has to finish an explanation
-            // before reacting to the next command.
-            stopSpeaking();
-
             // Whatever comes right after "Friday, may I ask?" (or after
             // "What else, sir?") is question text, not a command — accumulate
             // it, then wait 5s of quiet before confirming instead of
@@ -766,12 +758,9 @@
 
             // Only "yes"/"no" mean anything here — anything else is
             // ignored and we keep waiting (awaitingConfirmation stays true).
-            // Setting this flag doesn't need to wait for the prompt to
-            // finish playing like awaitingQuestion does, because it only
-            // reacts to the exact words "yes"/"no" — Nova's own "Is that
-            // all you need, sir?" doesn't contain either, so there's no
-            // self-feedback risk, and a user who answers fast (interrupting
-            // her) is still caught correctly.
+            // The mic is paused while "Is that all you need, sir?" plays
+            // (see processVoiceQueue), so it's only ever listening for the
+            // answer once she's actually finished asking.
             if (awaitingConfirmation) {
                 if (hasWord(text, 'yes')) {
                     awaitingConfirmation = false;
@@ -900,11 +889,10 @@
             });
 
             voiceRecognition.addEventListener('end', function() {
-                // Recognition is never deliberately paused anymore (even
-                // while Nova is talking — see stopSpeaking()), so any time
-                // it stops on its own (silence timeout, etc.) just restart
-                // it as long as Voice Mode is still on.
-                if (voiceEnabled) {
+                // Don't auto-restart while deliberately paused for speech
+                // playback (voiceSuppressRestart) — processVoiceQueue()
+                // restarts it itself once the queue drains.
+                if (voiceEnabled && !voiceSuppressRestart) {
                     try {
                         voiceRecognition.start();
                     } catch (e) {
