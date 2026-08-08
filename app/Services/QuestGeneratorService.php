@@ -38,6 +38,15 @@ class QuestGeneratorService
                 .'Each quest exp_reward 20-150, stat_reward 1-5.';
         }
 
+        $statGuidance = <<<TEXT
+        Real-world task ideas per stat (use these as inspiration, not verbatim — pick something equally concrete):
+        - STR: bodyweight exercises with a concrete rep/set count (push-ups, squats, planks), or a timed run/walk distance.
+        - AGI: agility/speed drills with a concrete duration or rep count (jump rope, footwork drills, sprint intervals).
+        - PER: real mindfulness/observation practice (a timed meditation, a sensory-awareness walk, a focused journaling prompt).
+        - VIT: real health habits (a water intake target, a sleep goal, cooking a healthy meal, a stretching routine).
+        - INT: real learning tasks — e.g. reading a specific well-known non-fiction/self-improvement book by its real title and a small page range (like "Atomic Habits by James Clear, pages 1-3"), a language-learning lesson, or solving a set of logic puzzles.
+        TEXT;
+
         $prompt = <<<PROMPT
         You are "The System" from the anime Solo Leveling, assigning quests to a Hunter to raise their stats.
 
@@ -47,8 +56,11 @@ class QuestGeneratorService
         - {$profile}
 
         Task: {$countInstruction}
+        Every quest must be a REAL, concrete, real-world task the Hunter can literally go do right now — NEVER
+        fictional/fantasy flavor text (no "slay a shadow beast", no "channel your mana", no game-only actions).
+        {$statGuidance}
         Scale the difficulty to the Hunter's level/EXP/stats and physical profile.
-        Write the title and description in English, short and in the tone of "The System" (blunt, like an in-game quest order).
+        Write the title and description in English, short and in the tone of "The System" (blunt, like an in-game quest order) — but the substance of the task itself must stay real and concrete.
 
         Reply with ONLY the following JSON format, no other text:
         {"quests": [{"title": "...", "description": "...", "exp_reward": 100, "stat_reward": 2}]}

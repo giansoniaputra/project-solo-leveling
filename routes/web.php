@@ -50,6 +50,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/penalties/check', [QuestController::class, 'checkPenalties']);
     Route::post('/status', [ProfileController::class, 'updateStatus']);
     Route::post('/voice/speak', [VoiceController::class, 'speak']);
+    Route::get('/voice/status-summary', [VoiceController::class, 'statusSummary']);
 });
 
 Route::get('/logout', function (Request $request) {

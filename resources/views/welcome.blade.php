@@ -121,7 +121,45 @@
 
         function statLabel(stat) {
             if (!stat) return '';
-            return stat === 'intelligence' ? 'INT' : stat.toUpperCase();
+            return stat === 'intelligent' ? 'INT' : stat.toUpperCase();
+        }
+
+        // Builds the sentence Voice Mode reads out loud whenever the Main
+        // Quest list is shown (see loadQuests below) — full detail, since
+        // there's normally only ever one active main quest at a time.
+        // enqueueSpeech() is defined further down but hoisting/closures
+        // mean that's fine — this is only ever called after the whole
+        // script has already run once.
+        function buildQuestNarration(quests, type) {
+            if (!quests || !quests.length) return null;
+
+            let label = type === 'main' ? 'main quest' : 'daily quest';
+            let intro = quests.length === 1 ?
+                'You have 1 ' + label + '. ' :
+                'You have ' + quests.length + ' ' + label + 's. ';
+
+            let parts = quests.map(function(quest, index) {
+                let statPart = quest.stat ? ', plus ' + quest.stat_reward + ' ' + statLabel(quest.stat) : '';
+                return 'Quest ' + (index + 1) + ': ' + quest.title + ', reward ' + quest.exp_reward + ' exp' + statPart + '.';
+            });
+
+            return intro + parts.join(' ');
+        }
+
+        // Daily Quest just gets a headcount when the list opens — the
+        // full explanation is only spoken once a specific quest is opened
+        // (see buildQuestDetailNarration, used in openQuestDetail below).
+        function buildDailyQuestSummary(count) {
+            if (!count) return null;
+            return 'You have ' + count + (count === 1 ? ' quest sir.' : ' quests sir.');
+        }
+
+        function buildQuestDetailNarration(quest) {
+            let done = quest.progress && quest.progress.status;
+            if (done) return quest.title + '. Already completed.';
+
+            let statPart = quest.stat ? ', plus ' + quest.stat_reward + ' ' + statLabel(quest.stat) : '';
+            return quest.title + '. ' + quest.description + '. Reward: ' + quest.exp_reward + ' exp' + statPart + '.';
         }
 
         function clearQuestTimer() {
@@ -266,6 +304,14 @@
                     currentQuests = response.quests;
                     setModalContent(renderQuestList(response.quests, type));
                     if (type === 'daily') startQuestTimer();
+
+                    if (type === 'daily') {
+                        let summary = buildDailyQuestSummary(response.quests.length);
+                        if (summary) enqueueSpeech(summary);
+                    } else {
+                        let narration = buildQuestNarration(response.quests, type);
+                        if (narration) enqueueSpeech(narration);
+                    }
                 }
             });
         }
@@ -306,6 +352,8 @@
 
             qdProceed.disabled = false;
             qdProceed.style.display = done ? 'none' : '';
+
+            enqueueSpeech(buildQuestDetailNarration(quest));
 
             document.querySelector('#upgrade').hidePopover();
             questDetail.showPopover();
@@ -364,6 +412,7 @@
             if (e.target && e.target.classList.contains('generate-quest-btn')) {
                 clearQuestTimer();
                 setModalContent('The System is preparing your quest...');
+                enqueueSpeech('Processing');
                 $.ajax({
                     url: '/quests/generate'
                     , type: 'POST'
@@ -372,11 +421,13 @@
                     }
                     , dataType: 'json'
                     , success: function() {
+                        enqueueSpeech('Generate quest successfully');
                         loadQuests(currentType);
                     }
                     , error: function(response) {
                         let msg = response.responseJSON ? response.responseJSON.message : 'Failed to generate quest.';
                         setModalContent(`<p>${msg}</p>`);
+                        enqueueSpeech('Generate quest failed.');
                     }
                 });
             }
@@ -386,6 +437,7 @@
                 let stat = statBtn.getAttribute('data-stat');
                 clearQuestTimer();
                 setModalContent('The System is preparing your quest...');
+                enqueueSpeech('Processing');
                 $.ajax({
                     url: '/quests/generate'
                     , type: 'POST'
@@ -395,11 +447,13 @@
                     }
                     , dataType: 'json'
                     , success: function() {
+                        enqueueSpeech('Generate quest successfully');
                         loadQuests('main');
                     }
                     , error: function(response) {
                         let msg = response.responseJSON ? response.responseJSON.message : 'Failed to generate quest.';
                         setModalContent(`<p>${msg}</p>`);
+                        enqueueSpeech('Generate quest failed.');
                     }
                 });
             }
@@ -464,160 +518,215 @@
         // synthetic dispatchEvent) so native popovertarget behavior fires
         // and the existing click handlers/delegation do all the actual work
         // — this file never duplicates that logic.
-        (function() {
-            let voiceEnabled = false;
-            let suppressRestart = false;
-            let voiceToggleBtn = document.querySelector('#voice-toggle-btn');
-            let voiceIndicator = document.querySelector('#voice-indicator');
-            let voiceText = document.querySelector('#voice-text');
-            let SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
+        //
+        // Declared at the outer script scope (not wrapped in an IIFE) so
+        // loadQuests() and the generate handlers above can call
+        // enqueueSpeech() / check voiceEnabled directly.
+        let voiceEnabled = false;
+        let voiceQueue = [];
+        let voiceIsSpeaking = false;
+        let voiceSuppressRestart = false;
+        let voiceRecognition = null;
+        let voiceToggleBtn = document.querySelector('#voice-toggle-btn');
+        let voiceIndicator = document.querySelector('#voice-indicator');
+        let voiceText = document.querySelector('#voice-text');
 
-            if (!SpeechRecognitionImpl) {
-                voiceToggleBtn.disabled = true;
-                voiceToggleBtn.title = 'Voice mode is not supported in this browser';
+        function hasWord(text, word) {
+            return new RegExp('\\b' + word + '\\b').test(text);
+        }
+
+        // Queues a line for Voice Mode to speak. Multiple calls play back
+        // to back instead of overlapping (e.g. "Generate quest successfully"
+        // followed by the new quest list being read out). No-ops entirely
+        // when Voice Mode is off, so call sites never need to check
+        // voiceEnabled themselves.
+        function enqueueSpeech(message) {
+            if (!voiceEnabled) return;
+            voiceQueue.push(message);
+            processVoiceQueue();
+        }
+
+        function processVoiceQueue() {
+            if (voiceIsSpeaking) return;
+
+            if (voiceQueue.length === 0) {
+                voiceSuppressRestart = false;
+                if (voiceEnabled && voiceRecognition) {
+                    try {
+                        voiceRecognition.start();
+                    } catch (e) {
+                        // already running — ignore
+                    }
+                }
                 return;
             }
 
-            function hasWord(text, word) {
-                return new RegExp('\\b' + word + '\\b').test(text);
-            }
-
-            // Speaks a reply out loud using OpenAI TTS (female "nova" voice,
-            // synthesized server-side and cached — see VoiceController).
-            // Recognition is paused while speaking and while suppressRestart
-            // is true — otherwise the mic would pick up the System's own
-            // voice through the speakers and the "end" handler's
-            // auto-restart would race with it.
-            function speakSystemReply(message) {
-                voiceText.textContent = 'System: "' + message + '"';
-
-                suppressRestart = true;
+            voiceIsSpeaking = true;
+            voiceSuppressRestart = true;
+            if (voiceRecognition) {
                 try {
-                    recognition.stop();
+                    voiceRecognition.stop();
                 } catch (e) {
                     // already stopped — ignore
                 }
-
-                function resumeListening() {
-                    suppressRestart = false;
-                    if (voiceEnabled) {
-                        try {
-                            recognition.start();
-                        } catch (e) {
-                            // already running — ignore
-                        }
-                    }
-                }
-
-                function speakWithBrowserVoice() {
-                    if (!('speechSynthesis' in window)) return resumeListening();
-                    let utterance = new SpeechSynthesisUtterance(message);
-                    utterance.onend = utterance.onerror = resumeListening;
-                    window.speechSynthesis.speak(utterance);
-                }
-
-                fetch('/voice/speak', {
-                        method: 'POST'
-                        , headers: {
-                            'Content-Type': 'application/json'
-                            , 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                        }
-                        , body: JSON.stringify({
-                            text: message
-                        })
-                    })
-                    .then(function(response) {
-                        if (!response.ok) throw new Error('TTS request failed');
-                        return response.blob();
-                    })
-                    .then(function(blob) {
-                        let audio = new Audio(URL.createObjectURL(blob));
-                        audio.onended = resumeListening;
-                        audio.onerror = speakWithBrowserVoice;
-                        audio.play();
-                    })
-                    .catch(speakWithBrowserVoice);
             }
 
-            function handleVoiceCommand(text) {
-                if (text.includes('you up')) return speakSystemReply('For you sir, always');
+            let message = voiceQueue.shift();
+            voiceText.textContent = 'System: "' + message + '"';
 
-                if (text.includes('let\'s begin friday')) return speakSystemReply('Okay sir, how can I help you this time?');
+            function done() {
+                voiceIsSpeaking = false;
+                processVoiceQueue();
+            }
 
-                if (text.includes('open daily quest')) return document.querySelector('#daily-quest').click();
-                if (text.includes('open main quest')) return document.querySelector('#main-quest').click();
-                if (hasWord(text, 'open status')) return document.querySelector('#status-btn').click();
+            function speakWithBrowserVoice() {
+                if (!('speechSynthesis' in window)) return done();
+                let utterance = new SpeechSynthesisUtterance(message);
+                utterance.onend = utterance.onerror = done;
+                window.speechSynthesis.speak(utterance);
+            }
 
-                let modal = document.querySelector('[popover]:popover-open');
-                if (!modal) return;
-
-                if (hasWord(text, 'generate')) {
-                    let btn = modal.querySelector('.generate-quest-btn');
-                    if (btn) return btn.click();
-                }
-
-                let ordinals = ['first', 'second', 'third', 'fourth', 'fifth'];
-                for (let i = 0; i < ordinals.length; i++) {
-                    if (text.includes(ordinals[i] + ' quest')) {
-                        let rows = modal.querySelectorAll('.quest-row');
-                        if (rows[i]) rows[i].click();
-                        return;
+            fetch('/voice/speak', {
+                    method: 'POST'
+                    , headers: {
+                        'Content-Type': 'application/json'
+                        , 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
                     }
-                }
+                    , body: JSON.stringify({
+                        text: message
+                    })
+                })
+                .then(function(response) {
+                    if (!response.ok) throw new Error('TTS request failed');
+                    return response.blob();
+                })
+                .then(function(blob) {
+                    let audio = new Audio(URL.createObjectURL(blob));
+                    audio.onended = done;
+                    audio.onerror = speakWithBrowserVoice;
+                    audio.play();
+                })
+                .catch(speakWithBrowserVoice);
+        }
 
-                let statMap = {
-                    str: ['strength', 'str']
-                    , agi: ['agility', 'agi']
-                    , per: ['perception', 'per']
-                    , vit: ['vitality', 'vit']
-                    , intelligence: ['intelligence', 'int']
-                , };
-                for (let key in statMap) {
-                    if (statMap[key].some((word) => hasWord(text, word))) {
-                        let btn = modal.querySelector('.stat-choice-btn[data-stat="' + key + '"]');
-                        if (btn) return btn.click();
-                    }
+        // "What is my status" — summarized/advised by AI (see
+        // VoiceController::statusSummary), never the raw numbers read
+        // verbatim.
+        function requestStatusSummary() {
+            voiceText.textContent = 'Summarizing your status...';
+            $.ajax({
+                url: '/voice/status-summary'
+                , type: 'GET'
+                , dataType: 'json'
+                , success: function(response) {
+                    enqueueSpeech(response.text);
                 }
-
-                if (hasWord(text, 'proceed') || hasWord(text, 'confirm')) {
-                    let btn = modal.querySelector('[data-action="Proceed"]');
-                    if (btn) return btn.click();
+                , error: function(response) {
+                    let msg = response.responseJSON ? response.responseJSON.message : 'Sorry, I could not summarize your status right now.';
+                    enqueueSpeech(msg);
                 }
+            });
+        }
 
-                if (hasWord(text, 'cancel') || hasWord(text, 'back')) {
-                    let btn = modal.querySelector('[data-action="Cancel"]');
-                    if (btn) return btn.click();
-                }
+        function handleVoiceCommand(text) {
+            if (text.includes('you up')) return enqueueSpeech('For you sir, always');
 
-                if (hasWord(text, 'save') && modal.id === 'status-modal') {
-                    let btn = document.querySelector('#status-save');
-                    if (btn) return btn.click();
+            if (text.includes('let\'s begin friday')) return enqueueSpeech('Okay sir, how can I help you this time?');
+
+            if (text.includes('what is my status') || text.includes('my status')) {
+                if (document.querySelector('#status-modal:popover-open')) {
+                    return requestStatusSummary();
                 }
             }
 
-            let recognition = new SpeechRecognitionImpl();
-            recognition.lang = 'en-US';
-            recognition.continuous = true;
-            recognition.interimResults = false;
+            if (text.includes('open daily quest')) {
+                document.querySelector('#daily-quest').click();
+                return enqueueSpeech('Open the daily quest');
+            }
+            if (text.includes('open main quest')) {
+                document.querySelector('#main-quest').click();
+                return enqueueSpeech('Open the main quest');
+            }
+            if (hasWord(text, 'open status')) {
+                document.querySelector('#status-btn').click();
+                return enqueueSpeech('Open the status');
+            }
 
-            recognition.addEventListener('result', function(event) {
+            let modal = document.querySelector('[popover]:popover-open');
+            if (!modal) return;
+
+            if (hasWord(text, 'generate')) {
+                let btn = modal.querySelector('.generate-quest-btn');
+                if (btn) return btn.click();
+            }
+
+            let ordinals = ['first', 'second', 'third', 'fourth', 'fifth'];
+            for (let i = 0; i < ordinals.length; i++) {
+                if (text.includes(ordinals[i] + ' quest')) {
+                    let rows = modal.querySelectorAll('.quest-row');
+                    if (rows[i]) rows[i].click();
+                    return;
+                }
+            }
+
+            // Stat names (strength/agility/perception/...) turned out hard
+            // to pronounce reliably for recognition, so the stat picker is
+            // selected by position instead — "first"/"one" through
+            // "fifth"/"five" — matching the button order in renderStatPicker().
+            let statOrder = ['str', 'agi', 'per', 'vit', 'intelligence'];
+            let numberWords = ['one', 'two', 'three', 'four', 'five'];
+            for (let i = 0; i < statOrder.length; i++) {
+                if (hasWord(text, ordinals[i]) || hasWord(text, numberWords[i])) {
+                    let btn = modal.querySelector('.stat-choice-btn[data-stat="' + statOrder[i] + '"]');
+                    if (btn) return btn.click();
+                }
+            }
+
+            if (hasWord(text, 'proceed') || hasWord(text, 'confirm')) {
+                let btn = modal.querySelector('[data-action="Proceed"]');
+                if (btn) return btn.click();
+            }
+
+            if (hasWord(text, 'cancel') || hasWord(text, 'back')) {
+                let btn = modal.querySelector('[data-action="Cancel"]');
+                if (btn) return btn.click();
+            }
+
+            if (hasWord(text, 'save') && modal.id === 'status-modal') {
+                let btn = document.querySelector('#status-save');
+                if (btn) return btn.click();
+            }
+        }
+
+        let SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!SpeechRecognitionImpl) {
+            voiceToggleBtn.disabled = true;
+            voiceToggleBtn.title = 'Voice mode is not supported in this browser';
+        } else {
+            voiceRecognition = new SpeechRecognitionImpl();
+            voiceRecognition.lang = 'en-US';
+            voiceRecognition.continuous = true;
+            voiceRecognition.interimResults = false;
+
+            voiceRecognition.addEventListener('result', function(event) {
                 let last = event.results[event.results.length - 1];
                 let transcript = last[0].transcript.toLowerCase().trim();
                 voiceText.textContent = 'Heard: "' + transcript + '"';
                 handleVoiceCommand(transcript);
             });
 
-            recognition.addEventListener('end', function() {
-                if (voiceEnabled && !suppressRestart) {
+            voiceRecognition.addEventListener('end', function() {
+                if (voiceEnabled && !voiceSuppressRestart) {
                     try {
-                        recognition.start();
+                        voiceRecognition.start();
                     } catch (e) {
                         // already running — ignore
                     }
                 }
             });
 
-            recognition.addEventListener('error', function(event) {
+            voiceRecognition.addEventListener('error', function(event) {
                 if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
                     voiceEnabled = false;
                     voiceToggleBtn.classList.remove('is-listening');
@@ -637,16 +746,16 @@
                 if (voiceEnabled) {
                     voiceText.textContent = 'Listening...';
                     try {
-                        recognition.start();
+                        voiceRecognition.start();
                     } catch (e) {
                         // already running — ignore
                     }
                 } else {
                     voiceText.textContent = 'Voice mode off';
-                    recognition.stop();
+                    voiceRecognition.stop();
                 }
             });
-        })();
+        }
 
     </script>
 </body>
