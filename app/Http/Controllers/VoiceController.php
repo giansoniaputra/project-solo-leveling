@@ -116,14 +116,17 @@ class VoiceController extends Controller
             'question' => 'required|string|max:500',
         ]);
 
+        $today = now()->format('F j, Y');
+
         $prompt = <<<PROMPT
-        Search the web and answer this question: {$data['question']}
+        Today's date is {$today}. Search the web and answer this question, using that as "now" — not your training
+        cutoff or any other assumed date: {$data['question']}
 
         Reply with ONE short, focused paragraph in plain English (2-4 sentences), suitable for text-to-speech —
         no markdown, no bullet lists, no headings, no "highlights" or extra tangential news, just the direct answer.
         Do NOT include inline citation links or parenthetical source mentions like "(site.com)" in the answer text
         itself — the source is shown separately, so the spoken text must read as plain natural sentences only.
-        Base it on your single most authoritative source.
+        Base it on your single most authoritative, up-to-date source.
         PROMPT;
 
         try {
