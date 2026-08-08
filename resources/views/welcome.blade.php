@@ -661,8 +661,9 @@
             }
 
             let ordinals = ['first', 'second', 'third', 'fourth', 'fifth'];
+            let numberWords = ['one', 'two', 'three', 'four', 'five'];
             for (let i = 0; i < ordinals.length; i++) {
-                if (text.includes(ordinals[i] + ' quest')) {
+                if (text.includes(ordinals[i] + ' quest') || text.includes('quest ' + numberWords[i])) {
                     let rows = modal.querySelectorAll('.quest-row');
                     if (rows[i]) rows[i].click();
                     return;
@@ -674,7 +675,6 @@
             // selected by position instead — "first"/"one" through
             // "fifth"/"five" — matching the button order in renderStatPicker().
             let statOrder = ['str', 'agi', 'per', 'vit', 'intelligence'];
-            let numberWords = ['one', 'two', 'three', 'four', 'five'];
             for (let i = 0; i < statOrder.length; i++) {
                 if (hasWord(text, ordinals[i]) || hasWord(text, numberWords[i])) {
                     let btn = modal.querySelector('.stat-choice-btn[data-stat="' + statOrder[i] + '"]');
