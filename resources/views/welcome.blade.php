@@ -595,7 +595,8 @@
                 url: '/status'
                 , type: 'POST'
                 , data: {
-                    weight: document.querySelector('#status-weight').value
+                    player: document.querySelector('#status-player').value
+                    , weight: document.querySelector('#status-weight').value
                     , height: document.querySelector('#status-height').value
                     , age: document.querySelector('#status-age').value
                 }
@@ -840,7 +841,10 @@
             let ordinals = ['first', 'second', 'third', 'fourth', 'fifth'];
             let numberWords = ['one', 'two', 'three', 'four', 'five'];
             for (let i = 0; i < ordinals.length; i++) {
-                if (text.includes(ordinals[i] + ' quest') || text.includes('quest ' + numberWords[i])) {
+                // Recognition sometimes transcribes a spoken number as the
+                // digit instead of the word (e.g. "four" -> "4"), so match
+                // either form.
+                if (text.includes(ordinals[i] + ' quest') || text.includes('quest ' + numberWords[i]) || text.includes('quest ' + (i + 1))) {
                     let rows = modal.querySelectorAll('.quest-row');
                     if (rows[i]) rows[i].click();
                     return;
@@ -853,7 +857,8 @@
             // "fifth"/"five" — matching the button order in renderStatPicker().
             let statOrder = ['str', 'agi', 'per', 'vit', 'intelligence'];
             for (let i = 0; i < statOrder.length; i++) {
-                if (hasWord(text, ordinals[i]) || hasWord(text, numberWords[i])) {
+                // Same digit-vs-word fallback as the quest-row match above.
+                if (hasWord(text, ordinals[i]) || hasWord(text, numberWords[i]) || hasWord(text, String(i + 1))) {
                     let btn = modal.querySelector('.stat-choice-btn[data-stat="' + statOrder[i] + '"]');
                     if (btn) return btn.click();
                 }

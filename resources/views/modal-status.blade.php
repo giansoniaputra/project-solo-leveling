@@ -12,9 +12,9 @@
         <div class="body__content">
             <h2><span>Hunter Status</span></h2>
             <div class="body__text" style="padding:10px 0">
-                <div class="status-row">
-                    <span class="status-label">Name</span>
-                    <span class="status-value">{{ $user->name }}</span>
+                <div class="status-row status-row--input">
+                    <label class="status-label" for="status-player">Player</label>
+                    <input type="text" class="status-input" name="player" id="status-player" value="{{ $user->player }}" placeholder="{{ $user->name }}">
                 </div>
                 <div class="status-row">
                     <span class="status-label">Level</span>

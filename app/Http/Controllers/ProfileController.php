@@ -9,6 +9,7 @@ class ProfileController extends Controller
     public function updateStatus(Request $request)
     {
         $data = $request->validate([
+            'player' => 'nullable|string|max:255',
             'weight' => 'required|numeric|min:1|max:500',
             'height' => 'required|numeric|min:1|max:300',
             'age' => 'required|integer|min:1|max:120',
