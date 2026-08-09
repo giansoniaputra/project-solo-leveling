@@ -1058,10 +1058,13 @@
 
         document.querySelector('#ask-cancel').addEventListener('click', function() {
             askModal.hidePopover();
+            // Only conversation-history-modal has content ready to show
+            // again without a fresh load — #upgrade's raw markup is an
+            // empty shell (title defaults to "Login") until loadQuests/
+            // loadTasks/loadShop populate it, so just close instead of
+            // blindly reopening it here.
             if (askReturnTo === 'conversation-history-modal') {
                 conversationHistoryModal.showPopover();
-            } else {
-                document.querySelector('#upgrade').showPopover();
             }
             askReturnTo = 'upgrade';
         });
@@ -1146,7 +1149,6 @@
 
         document.querySelector('#conversation-history-cancel').addEventListener('click', function() {
             conversationHistoryModal.hidePopover();
-            document.querySelector('#upgrade').showPopover();
         });
 
         document.querySelector('#conversation-history-content').addEventListener('click', function(e) {
