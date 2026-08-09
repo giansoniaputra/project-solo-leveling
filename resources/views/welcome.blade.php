@@ -9,6 +9,8 @@
     <title>Solo Leveling</title>
 </head>
 <body>
+    <canvas id="voice-equalizer" aria-hidden="true"></canvas>
+
     <button class="cyber-btn" id="status-btn" popovertarget="status-modal" popovertargetaction="show" aria-label="Status" data-action="Status" style="position:fixed; top:20px; right:20px;">
         <span class="backdrop"><span class="corner"></span></span>
         <span>Status</span>
@@ -808,6 +810,110 @@
         let voiceIndicator = document.querySelector('#voice-indicator');
         let voiceText = document.querySelector('#voice-text');
 
+        // ---- Equalizer (purely decorative, behind everything else) ----
+        let equalizerCanvas = document.querySelector('#voice-equalizer');
+        let equalizerCtx = equalizerCanvas.getContext('2d');
+        let audioContext = null;
+        let equalizerAnalyser = null;
+        let equalizerAnimationId = null;
+
+        function resizeEqualizerCanvas() {
+            equalizerCanvas.width = window.innerWidth;
+            equalizerCanvas.height = window.innerHeight;
+        }
+        resizeEqualizerCanvas();
+        window.addEventListener('resize', resizeEqualizerCanvas);
+
+        // AudioContext must be created (or resumed) from a real user
+        // gesture — the Voice Mode toggle click already is one, so this is
+        // only ever called from there or right before playing TTS audio
+        // that gesture already unlocked.
+        function ensureAudioContext() {
+            let AudioContextImpl = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextImpl) return null;
+            if (!audioContext) audioContext = new AudioContextImpl();
+            if (audioContext.state === 'suspended') audioContext.resume();
+            return audioContext;
+        }
+
+        // Routes an <audio> element's output through an AnalyserNode (still
+        // reaching the speakers via .connect(destination)) so its waveform
+        // can be drawn as a line. Silently does nothing if the Web Audio
+        // API isn't available — Voice Mode itself still works either way.
+        function visualizeAudio(audioEl) {
+            let ctx = ensureAudioContext();
+            if (!ctx) return;
+
+            try {
+                let source = ctx.createMediaElementSource(audioEl);
+                let analyser = ctx.createAnalyser();
+                analyser.fftSize = 2048; // enough samples for a smooth line
+                source.connect(analyser);
+                analyser.connect(ctx.destination);
+                equalizerAnalyser = analyser;
+                startEqualizerLoop();
+            } catch (e) {
+                // e.g. browser TTS fallback has no element to analyse — ignore
+            }
+        }
+
+        function startEqualizerLoop() {
+            if (!equalizerAnalyser) return;
+            if (equalizerAnimationId) cancelAnimationFrame(equalizerAnimationId);
+
+            // Time-domain data (a waveform trace), not frequency bins — and
+            // sized in samples off fftSize (frequencyBinCount is half that,
+            // meant for getByteFrequencyData instead).
+            let bufferLength = equalizerAnalyser.fftSize;
+            let dataArray = new Uint8Array(bufferLength);
+            let accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#5ac8c8';
+
+            function draw() {
+                equalizerAnimationId = requestAnimationFrame(draw);
+                equalizerAnalyser.getByteTimeDomainData(dataArray);
+
+                let width = equalizerCanvas.width;
+                let height = equalizerCanvas.height;
+                equalizerCtx.clearRect(0, 0, width, height);
+
+                // Keep the wave's amplitude modest and screen-size-independent
+                // — this is meant to read as a subtle background hint, not
+                // dominate a tall viewport.
+                let centerY = height / 2;
+                let amplitude = Math.min(height * 0.25, 220);
+                let sliceWidth = width / (bufferLength - 1);
+
+                equalizerCtx.lineWidth = 2;
+                equalizerCtx.strokeStyle = accent;
+                equalizerCtx.beginPath();
+
+                let x = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    let v = dataArray[i] / 128 - 1; // -1..1, 0 = silence
+                    let y = centerY + v * amplitude;
+
+                    if (i === 0) {
+                        equalizerCtx.moveTo(x, y);
+                    } else {
+                        equalizerCtx.lineTo(x, y);
+                    }
+                    x += sliceWidth;
+                }
+
+                equalizerCtx.stroke();
+            }
+
+            draw();
+        }
+
+        function stopEqualizerLoop() {
+            if (equalizerAnimationId) {
+                cancelAnimationFrame(equalizerAnimationId);
+                equalizerAnimationId = null;
+            }
+            equalizerCtx.clearRect(0, 0, equalizerCanvas.width, equalizerCanvas.height);
+        }
+
         function hasWord(text, word) {
             return new RegExp('\\b' + word + '\\b').test(text);
         }
@@ -866,6 +972,7 @@
             voiceText.textContent = 'System: "' + message + '"';
 
             function done() {
+                stopEqualizerLoop();
                 voiceIsSpeaking = false;
                 if (item.onDone) item.onDone();
                 processVoiceQueue();
@@ -897,6 +1004,7 @@
                     audio.onended = done;
                     audio.onerror = speakWithBrowserVoice;
                     audio.play();
+                    visualizeAudio(audio);
                 })
                 .catch(speakWithBrowserVoice);
         }
@@ -1159,6 +1267,7 @@
 
                 if (voiceEnabled) {
                     voiceText.textContent = 'Listening...';
+                    ensureAudioContext(); // unlock it now, on a real click
                     try {
                         voiceRecognition.start();
                     } catch (e) {
@@ -1166,6 +1275,7 @@
                     }
                 } else {
                     voiceText.textContent = 'Voice mode off';
+                    stopEqualizerLoop();
                     voiceRecognition.stop();
                 }
             });

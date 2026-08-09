@@ -1398,4 +1398,17 @@ div.tp-dfwv {
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+
+    /* Audio-reactive waveform, drawn while Nova is speaking (see
+       welcome.blade.php's visualizeAudio()/startEqualizerLoop()). Fixed to
+       the viewport with a deeply negative z-index and pointer-events:none
+       so it's purely decorative background — it can never sit on top of or
+       intercept clicks on any real UI. */
+    #voice-equalizer {
+        position: fixed;
+        inset: 0;
+        z-index: -10;
+        pointer-events: none;
+        opacity: 0.45;
+    }
 }
