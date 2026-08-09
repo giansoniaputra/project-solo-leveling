@@ -35,6 +35,11 @@ class User extends Authenticatable
         return $this->hasMany(Task::class);
     }
 
+    public function conversations(): HasMany
+    {
+        return $this->hasMany(Conversation::class);
+    }
+
     /**
      * Turns cumulative EXP into a level, the EXP earned within that level,
      * and how much EXP the level needs. Each level-up costs 500 more than

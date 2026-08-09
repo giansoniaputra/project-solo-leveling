@@ -126,6 +126,7 @@
     @include('modal-task-create')
     @include('modal-task-detail')
     @include('modal-history')
+    @include('modal-conversation-history')
     <a aria-label="Follow Jhey" class="bear-link" href="https://twitter.com/intent/follow?screen_name=jh3yy" target="_blank" rel="noreferrer noopener">
         <svg class="w-9" viewBox="0 0 969 955" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="161.191" cy="320.191" r="133.191" stroke="currentColor" stroke-width="20"></circle>
@@ -177,6 +178,7 @@
         let accumulatedQuestion = '';
         let confirmTimer = null;
         let currentAnswer = null; // { question, text, sourceTitle, sourceUrl, lang }
+        let askReturnTo = 'upgrade'; // 'upgrade' | 'conversation-history-modal' — where Cancel sends you back
         let awaitingPurchaseConfirmation = false;
         let pendingPurchaseId = null;
 
@@ -199,6 +201,13 @@
         let historyCurrentPage = 1;
         let historyLastPage = 1;
         let historyDateFilter = '';
+
+        let conversationHistoryModal = document.querySelector('#conversation-history-modal');
+        let conversationHistoryBody = document.querySelector('#conversation-history-body');
+        let conversationHistoryBodyG = document.querySelector('#conversation-history-body-glitch');
+        let currentConversations = [];
+        let conversationHistoryCurrentPage = 1;
+        let conversationHistoryLastPage = 1;
 
         // Wrapping every content swap in a fresh .quest-anim element replays
         // the fade/slide-in keyframe (new nodes always start their animation).
@@ -513,6 +522,20 @@
             let parsed = new Date(dateStr + 'T00:00:00');
             if (isNaN(parsed)) return dateStr;
             return parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        }
+
+        // Conversations carry a full timestamp (created_at), unlike the
+        // plain date-only strings Tasks use, so this parses it directly
+        // instead of appending 'T00:00:00' like formatTaskDate does.
+        function formatConversationDate(dateStr) {
+            let parsed = new Date(dateStr);
+            if (isNaN(parsed)) return dateStr;
+            return parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        }
+
+        function truncateText(text, maxLength) {
+            if (!text) return '';
+            return text.length > maxLength ? text.slice(0, maxLength).trim() + '...' : text;
         }
 
         function renderTaskList(tasks) {
@@ -931,9 +954,29 @@
             };
             renderAskModal();
 
+            askReturnTo = 'upgrade';
             document.querySelector('#upgrade').hidePopover();
             askModal.showPopover();
             enqueueSpeech(response.answer);
+        }
+
+        // Re-opens a past Q&A from Conversation History — same modal as a
+        // fresh answer, but reads the stored answer again and, on Cancel,
+        // returns to the history list instead of the dashboard.
+        function openConversationFromHistory(conversation) {
+            currentAnswer = {
+                question: conversation.question
+                , text: conversation.answer
+                , sourceTitle: conversation.source_title || null
+                , sourceUrl: conversation.source_url || null
+                , lang: 'en'
+            };
+            renderAskModal();
+
+            askReturnTo = 'conversation-history-modal';
+            conversationHistoryModal.hidePopover();
+            askModal.showPopover();
+            enqueueSpeech(conversation.answer);
         }
 
         // askMode 'reference' — real web search + citation.
@@ -1010,6 +1053,116 @@
                 window.open(currentAnswer.sourceUrl, '_blank');
             } else {
                 enqueueSpeech('There is no reference available for this answer.');
+            }
+        });
+
+        document.querySelector('#ask-cancel').addEventListener('click', function() {
+            askModal.hidePopover();
+            if (askReturnTo === 'conversation-history-modal') {
+                conversationHistoryModal.showPopover();
+            } else {
+                document.querySelector('#upgrade').showPopover();
+            }
+            askReturnTo = 'upgrade';
+        });
+
+        // ---- Conversation History ("Friday, may I ask?" past answers) ----
+        function setConversationHistoryContent(html) {
+            conversationHistoryBody.innerHTML = `<div class="quest-anim">${html}</div>`;
+            conversationHistoryBodyG.innerHTML = `<div class="quest-anim">${html}</div>`;
+            conversationHistoryBody.scrollTop = 0;
+            conversationHistoryBodyG.scrollTop = 0;
+
+            let maxHeight = Math.min(window.innerHeight * 0.5, 340);
+            let needsScroll = conversationHistoryBody.scrollHeight > maxHeight;
+            conversationHistoryBody.classList.toggle('is-scrollable', needsScroll);
+            conversationHistoryBodyG.classList.toggle('is-scrollable', needsScroll);
+        }
+
+        conversationHistoryBody.addEventListener('scroll', function() {
+            conversationHistoryBodyG.scrollTop = conversationHistoryBody.scrollTop;
+        });
+
+        function renderConversationHistoryList(conversations, currentPage, lastPage) {
+            if (!conversations.length) {
+                return '<div class="quest-empty"><p>No conversations yet.</p></div>';
+            }
+
+            let rows = conversations.map(function(conversation) {
+                return `
+                    <div class="quest-row conversation-row" data-id="${conversation.id}">
+                        <div class="quest-info">
+                            <span class="quest-title">${truncateText(conversation.question, 60)}</span>
+                            <span class="quest-desc">${formatConversationDate(conversation.created_at)}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            let pagination = `
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    <button type="button" class="cyber-btn conversation-history-prev-btn" style="width:50%;" ${currentPage <= 1 ? 'disabled' : ''}>
+                        <span class="backdrop"><span class="corner"></span></span>
+                        <span>Previous</span>
+                    </button>
+                    <button type="button" class="cyber-btn conversation-history-next-btn" style="width:50%;" ${currentPage >= lastPage ? 'disabled' : ''}>
+                        <span class="backdrop"><span class="corner"></span></span>
+                        <span>Next</span>
+                    </button>
+                </div>
+                <p class="quest-exp" style="text-align:center; margin-top:6px;">Page ${currentPage} of ${lastPage}</p>
+            `;
+
+            return rows + pagination;
+        }
+
+        function loadConversationHistory(page) {
+            conversationHistoryCurrentPage = page || 1;
+            setConversationHistoryContent('Loading...');
+
+            $.ajax({
+                url: '/conversations/history'
+                , type: 'GET'
+                , data: {
+                    page: conversationHistoryCurrentPage
+                }
+                , dataType: 'json'
+                , success: function(response) {
+                    currentConversations = response.conversations;
+                    conversationHistoryCurrentPage = response.current_page;
+                    conversationHistoryLastPage = response.last_page;
+                    setConversationHistoryContent(renderConversationHistoryList(response.conversations, response.current_page, response.last_page));
+                }
+            });
+        }
+
+        function openConversationHistory() {
+            let openModal = document.querySelector('[popover]:popover-open');
+            if (openModal) openModal.hidePopover();
+            conversationHistoryModal.showPopover();
+            loadConversationHistory(1);
+            enqueueSpeech('Open Last Conversation.');
+        }
+
+        document.querySelector('#conversation-history-cancel').addEventListener('click', function() {
+            conversationHistoryModal.hidePopover();
+            document.querySelector('#upgrade').showPopover();
+        });
+
+        document.querySelector('#conversation-history-content').addEventListener('click', function(e) {
+            if (e.target && e.target.classList.contains('conversation-history-prev-btn') && !e.target.disabled) {
+                return loadConversationHistory(Math.max(1, conversationHistoryCurrentPage - 1));
+            }
+
+            if (e.target && e.target.classList.contains('conversation-history-next-btn') && !e.target.disabled) {
+                return loadConversationHistory(Math.min(conversationHistoryLastPage, conversationHistoryCurrentPage + 1));
+            }
+
+            let conversationRow = e.target.closest ? e.target.closest('.conversation-row') : null;
+            if (conversationRow) {
+                let conversationId = Number(conversationRow.getAttribute('data-id'));
+                let conversation = currentConversations.find(c => c.id === conversationId);
+                if (conversation) openConversationFromHistory(conversation);
             }
         });
 
@@ -1551,6 +1704,9 @@
                 openHistory();
                 return enqueueSpeech('Open the history');
             }
+            if (text.includes('open last conversation')) {
+                return openConversationHistory();
+            }
 
             let modal = document.querySelector('[popover]:popover-open');
             if (!modal) return;
@@ -1617,6 +1773,33 @@
 
                     if (isMatch) {
                         let rows = document.querySelectorAll('#history-body .task-row');
+                        if (rows[i]) rows[i].click();
+                        return;
+                    }
+                }
+            }
+
+            // Conversation History — same flow as the Task History list
+            // (point-by-point selection + its own paging commands).
+            if (modal.id === 'conversation-history-modal') {
+                if (hasWord(text, 'next')) {
+                    loadConversationHistory(Math.min(conversationHistoryLastPage, conversationHistoryCurrentPage + 1));
+                    return;
+                }
+                if (hasWord(text, 'previous')) {
+                    loadConversationHistory(Math.max(1, conversationHistoryCurrentPage - 1));
+                    return;
+                }
+
+                for (let i = 0; i < ordinals.length; i++) {
+                    let isMatch = text.includes(ordinals[i] + ' conversation')
+                        || text.includes('conversation ' + numberWords[i])
+                        || text.includes('conversation ' + (i + 1))
+                        || hasWord(text, numberWords[i])
+                        || hasWord(text, String(i + 1));
+
+                    if (isMatch) {
+                        let rows = document.querySelectorAll('#conversation-history-body .conversation-row');
                         if (rows[i]) rows[i].click();
                         return;
                     }

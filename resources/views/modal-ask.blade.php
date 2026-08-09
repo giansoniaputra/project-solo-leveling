@@ -25,7 +25,7 @@
         </div>
     </section>
     <div class="modal__actions">
-        <button aria-label="Cancel" class="cyber-btn" data-action="Cancel" popovertarget="ask-modal" popovertargetaction="hide">
+        <button type="button" aria-label="Cancel" class="cyber-btn" id="ask-cancel" data-action="Cancel">
             <span class="backdrop"><span class="corner"></span></span>
             <kbd>esc</kbd>
             <span>Cancel</span>

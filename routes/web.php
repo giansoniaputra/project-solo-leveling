@@ -56,6 +56,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/voice/ask', [VoiceController::class, 'ask']);
     Route::post('/voice/suggest', [VoiceController::class, 'suggest']);
     Route::post('/voice/translate', [VoiceController::class, 'translate']);
+    Route::get('/conversations/history', [VoiceController::class, 'conversationHistory']);
     Route::get('/shop', [ShopController::class, 'index']);
     Route::post('/shop/{item}/purchase', [ShopController::class, 'purchase']);
     Route::get('/tasks', [TaskController::class, 'index']);

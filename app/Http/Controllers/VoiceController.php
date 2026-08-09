@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Conversation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -11,6 +12,8 @@ class VoiceController extends Controller
     private const VOICE = 'nova';
 
     private const SPEED = 0.85;
+
+    private const CONVERSATIONS_PER_PAGE = 10;
 
     /**
      * Synthesizes "The System"'s spoken replies via OpenAI TTS. Identical
@@ -163,7 +166,17 @@ class VoiceController extends Controller
         $citation = collect($message['content'][0]['annotations'] ?? [])
             ->firstWhere('type', 'url_citation');
 
+        $conversation = Conversation::create([
+            'user_id' => $request->user()->id,
+            'question' => $data['question'],
+            'answer' => $answer,
+            'mode' => 'reference',
+            'source_title' => $citation['title'] ?? null,
+            'source_url' => $citation['url'] ?? null,
+        ]);
+
         return response()->json([
+            'conversation_id' => $conversation->id,
             'answer' => $answer,
             'source_title' => $citation['title'] ?? null,
             'source_url' => $citation['url'] ?? null,
@@ -216,10 +229,45 @@ class VoiceController extends Controller
             return response()->json(['message' => 'The System had nothing to suggest.'], 502);
         }
 
+        $conversation = Conversation::create([
+            'user_id' => $request->user()->id,
+            'question' => $data['question'],
+            'answer' => $answer,
+            'mode' => 'suggestion',
+            'source_title' => null,
+            'source_url' => null,
+        ]);
+
         return response()->json([
+            'conversation_id' => $conversation->id,
             'answer' => $answer,
             'source_title' => null,
             'source_url' => null,
+        ]);
+    }
+
+    /**
+     * Paginated list of past "Friday, may I ask?" Q&A pairs, for the
+     * "Open Last Conversation" voice command — newest first, same
+     * pagination shape as TaskController::history.
+     */
+    public function conversationHistory(Request $request)
+    {
+        $paginator = Conversation::where('user_id', $request->user()->id)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->paginate(
+                self::CONVERSATIONS_PER_PAGE,
+                ['*'],
+                'page',
+                max(1, (int) $request->query('page', 1))
+            );
+
+        return response()->json([
+            'conversations' => $paginator->items(),
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'total' => $paginator->total(),
         ]);
     }
 
