@@ -819,15 +819,16 @@
             }
         });
 
-        function updateStatusDisplay(exp, level, stats, points) {
+        function updateStatusDisplay(exp, level, stats, points, expIntoLevel, expForNextLevel) {
             let levelEl = document.querySelector('#status-level-value');
             let expEl = document.querySelector('#status-exp-value');
             let fillEl = document.querySelector('#status-exp-fill');
-            let expIntoLevel = exp % 1000;
 
             if (levelEl) levelEl.textContent = level;
-            if (expEl) expEl.textContent = expIntoLevel + ' / 1000';
-            if (fillEl) fillEl.style.width = (expIntoLevel / 10) + '%';
+            if (expIntoLevel !== undefined && expForNextLevel !== undefined) {
+                if (expEl) expEl.textContent = expIntoLevel + ' / ' + expForNextLevel;
+                if (fillEl) fillEl.style.width = (expIntoLevel / expForNextLevel * 100) + '%';
+            }
 
             if (stats) {
                 ['str', 'agi', 'per', 'vit', 'intelligence'].forEach(function(key) {
@@ -887,7 +888,7 @@
                     questDetail.hidePopover();
                     document.querySelector('#upgrade').showPopover();
                     clearQuestTimer();
-                    updateStatusDisplay(response.exp, response.level, response.stats, response.points);
+                    updateStatusDisplay(response.exp, response.level, response.stats, response.points, response.exp_into_level, response.exp_for_next_level);
                     setModalContent(`
                         <div class="quest-empty">
                             <p>${response.message}</p>
@@ -1144,7 +1145,7 @@
             , type: 'GET'
             , dataType: 'json'
             , success: function(response) {
-                updateStatusDisplay(response.exp, response.level, response.stats);
+                updateStatusDisplay(response.exp, response.level, response.stats, undefined, response.exp_into_level, response.exp_for_next_level);
                 if (response.penalized && response.penalized.length) {
                     showPenaltyToast(response.penalized);
                 }

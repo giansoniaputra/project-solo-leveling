@@ -1,6 +1,8 @@
 @php
     $user = auth()->user();
-    $expIntoLevel = $user->exp % 1000;
+    $levelInfo = \App\Models\User::levelInfoForExp($user->exp);
+    $expIntoLevel = $levelInfo['exp_into_level'];
+    $expForNextLevel = $levelInfo['exp_for_next_level'];
 @endphp
 <div class="modal" popover="auto" id="status-modal" style="position:fixed; top:60px; right:20px; inset:auto;">
     <section class="modal__body">
@@ -22,10 +24,10 @@
                 </div>
                 <div class="status-row">
                     <span class="status-label">EXP</span>
-                    <span class="status-value" id="status-exp-value">{{ $expIntoLevel }} / 1000</span>
+                    <span class="status-value" id="status-exp-value">{{ $expIntoLevel }} / {{ $expForNextLevel }}</span>
                 </div>
                 <div class="status-exp-bar">
-                    <div class="status-exp-fill" id="status-exp-fill" style="width: {{ $expIntoLevel / 10 }}%"></div>
+                    <div class="status-exp-fill" id="status-exp-fill" style="width: {{ $expIntoLevel / $expForNextLevel * 100 }}%"></div>
                 </div>
 
                 <div class="status-row">

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Progress;
 use App\Models\Quest;
+use App\Models\User;
 use App\Services\PenaltyService;
 use App\Services\QuestGeneratorService;
 use Illuminate\Http\Request;
@@ -72,13 +73,16 @@ class QuestController extends Controller
             $user->points += (int) $quest->stat_reward;
         }
 
-        $user->level = (string) (intdiv($user->exp, 1000) + 1);
+        $levelInfo = User::levelInfoForExp($user->exp);
+        $user->level = (string) $levelInfo['level'];
         $user->save();
 
         return response()->json([
             'message' => 'Quest completed!',
             'exp' => $user->exp,
             'level' => $user->level,
+            'exp_into_level' => $levelInfo['exp_into_level'],
+            'exp_for_next_level' => $levelInfo['exp_for_next_level'],
             'points' => $user->points,
             'stat' => $quest->stat,
             'stat_reward' => $quest->stat_reward,
@@ -90,6 +94,7 @@ class QuestController extends Controller
     {
         $user = $request->user();
         $missed = $penalty->applyForUser($user);
+        $levelInfo = User::levelInfoForExp($user->exp);
 
         return response()->json([
             'penalized' => $missed->map(fn ($quest) => [
@@ -98,6 +103,8 @@ class QuestController extends Controller
             ])->values(),
             'exp' => $user->exp,
             'level' => $user->level,
+            'exp_into_level' => $levelInfo['exp_into_level'],
+            'exp_for_next_level' => $levelInfo['exp_for_next_level'],
             'stats' => $this->statsPayload($user),
         ]);
     }

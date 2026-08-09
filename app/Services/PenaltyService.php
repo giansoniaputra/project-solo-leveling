@@ -36,7 +36,7 @@ class PenaltyService
         }
 
         $user->exp = max(0, $user->exp - $totalPenalty);
-        $user->level = (string) (intdiv($user->exp, 1000) + 1);
+        $user->level = (string) User::levelInfoForExp($user->exp)['level'];
         $user->save();
 
         return $missed;
