@@ -53,6 +53,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/voice/speak', [VoiceController::class, 'speak']);
     Route::get('/voice/status-summary', [VoiceController::class, 'statusSummary']);
     Route::post('/voice/ask', [VoiceController::class, 'ask']);
+    Route::post('/voice/suggest', [VoiceController::class, 'suggest']);
     Route::post('/voice/translate', [VoiceController::class, 'translate']);
     Route::get('/shop', [ShopController::class, 'index']);
     Route::post('/shop/{item}/purchase', [ShopController::class, 'purchase']);

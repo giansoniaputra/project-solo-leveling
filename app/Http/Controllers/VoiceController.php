@@ -171,6 +171,59 @@ class VoiceController extends Controller
     }
 
     /**
+     * "Friday, may I ask?" flow, "your suggestion" branch: The System's own
+     * direct opinion — deliberately NOT a web search, so no citation comes
+     * back (the frontend already handles a null source gracefully).
+     */
+    public function suggest(Request $request)
+    {
+        $data = $request->validate([
+            'question' => 'required|string|max:500',
+        ]);
+
+        $today = now()->format('F j, Y');
+
+        $prompt = <<<PROMPT
+        Today's date is {$today}.
+
+        A Hunter is asking for YOUR OWN direct opinion or suggestion — do NOT search the web or claim to have
+        looked anything up, just answer from your own reasoning, in the blunt, encouraging tone of "The System"
+        from Solo Leveling.
+
+        Question: {$data['question']}
+
+        Reply with ONE short, focused paragraph in plain English (2-4 sentences), suitable for text-to-speech —
+        no markdown, no bullet lists, no headings, just your direct suggestion.
+        PROMPT;
+
+        $client = \OpenAI::client(config('services.openai.key'));
+
+        try {
+            $response = $client->chat()->create([
+                'model' => 'gpt-4o-mini',
+                'messages' => [
+                    ['role' => 'system', 'content' => 'You are "The System" from Solo Leveling, giving your own direct opinion — never claim to have searched anything.'],
+                    ['role' => 'user', 'content' => $prompt],
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed to reach the System (AI): '.$e->getMessage()], 502);
+        }
+
+        $answer = trim($response->choices[0]->message->content ?? '');
+
+        if ($answer === '') {
+            return response()->json(['message' => 'The System had nothing to suggest.'], 502);
+        }
+
+        return response()->json([
+            'answer' => $answer,
+            'source_title' => null,
+            'source_url' => null,
+        ]);
+    }
+
+    /**
      * Translates an already-generated answer in place (used by the
      * "change bahasa" / "change english" voice commands) — no new search,
      * just a rewrite of the existing text.

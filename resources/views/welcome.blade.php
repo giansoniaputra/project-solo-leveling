@@ -143,6 +143,8 @@
         let askSource = document.querySelector('#ask-source');
         let askSourceG = document.querySelector('#ask-source-glitch');
         let askOpenReference = document.querySelector('#ask-open-reference');
+        let awaitingAskMode = false;
+        let askMode = null; // 'reference' | 'suggestion'
         let awaitingQuestion = false;
         let awaitingConfirmation = false;
         let accumulatedQuestion = '';
@@ -554,6 +556,22 @@
             askOpenReference.disabled = !currentAnswer.sourceUrl;
         }
 
+        function showAskAnswer(question, response) {
+            currentAnswer = {
+                question: question
+                , text: response.answer
+                , sourceTitle: response.source_title || null
+                , sourceUrl: response.source_url || null
+                , lang: 'en'
+            };
+            renderAskModal();
+
+            document.querySelector('#upgrade').hidePopover();
+            askModal.showPopover();
+            enqueueSpeech(response.answer);
+        }
+
+        // askMode 'reference' — real web search + citation.
         function askSystem(question) {
             enqueueSpeech('Let me look that up for you.');
 
@@ -565,21 +583,31 @@
                 }
                 , dataType: 'json'
                 , success: function(response) {
-                    currentAnswer = {
-                        question: question
-                        , text: response.answer
-                        , sourceTitle: response.source_title
-                        , sourceUrl: response.source_url
-                        , lang: 'en'
-                    };
-                    renderAskModal();
-
-                    document.querySelector('#upgrade').hidePopover();
-                    askModal.showPopover();
-                    enqueueSpeech(response.answer);
+                    showAskAnswer(question, response);
                 }
                 , error: function(response) {
                     let msg = response.responseJSON ? response.responseJSON.message : 'Sorry, I could not find an answer to that.';
+                    enqueueSpeech(msg);
+                }
+            });
+        }
+
+        // askMode 'suggestion' — Nova's own opinion, no web search/citation.
+        function askSystemSuggestion(question) {
+            enqueueSpeech('Let me think about that for you.');
+
+            $.ajax({
+                url: '/voice/suggest'
+                , type: 'POST'
+                , data: {
+                    question: question
+                }
+                , dataType: 'json'
+                , success: function(response) {
+                    showAskAnswer(question, response);
+                }
+                , error: function(response) {
+                    let msg = response.responseJSON ? response.responseJSON.message : 'Sorry, I could not think of anything right now.';
                     enqueueSpeech(msg);
                 }
             });
@@ -893,10 +921,30 @@
         }
 
         function handleVoiceCommand(text) {
-            // Whatever comes right after "Friday, may I ask?" (or after
-            // "What else, sir?") is question text, not a command — accumulate
-            // it, then wait 5s of quiet before confirming instead of
-            // searching immediately, in case there's more to add.
+            // Right after "Friday, may I ask?" — only "reference"/
+            // "suggestion" mean anything here, everything else is ignored.
+            if (awaitingAskMode) {
+                if (hasWord(text, 'reference')) {
+                    awaitingAskMode = false;
+                    askMode = 'reference';
+                    return enqueueSpeech('What are you asking for, sir?', function() {
+                        awaitingQuestion = true;
+                    });
+                }
+                if (hasWord(text, 'suggestion')) {
+                    awaitingAskMode = false;
+                    askMode = 'suggestion';
+                    return enqueueSpeech('What are you asking for, sir?', function() {
+                        awaitingQuestion = true;
+                    });
+                }
+                return;
+            }
+
+            // Whatever comes right after the reference/suggestion choice
+            // (or after "What else, sir?") is question text, not a command
+            // — accumulate it, then wait 3s of quiet before confirming
+            // instead of searching immediately, in case there's more to add.
             if (awaitingQuestion) {
                 awaitingQuestion = false;
                 accumulatedQuestion = accumulatedQuestion ? accumulatedQuestion + ' ' + text : text;
@@ -905,7 +953,7 @@
                 confirmTimer = setTimeout(function() {
                     awaitingConfirmation = true;
                     enqueueSpeech('Is that all you need, sir?');
-                }, 5000);
+                }, 3000);
                 return;
             }
 
@@ -919,7 +967,7 @@
                     awaitingConfirmation = false;
                     let question = accumulatedQuestion;
                     accumulatedQuestion = '';
-                    return askSystem(question);
+                    return askMode === 'suggestion' ? askSystemSuggestion(question) : askSystem(question);
                 }
                 if (hasWord(text, 'no')) {
                     awaitingConfirmation = false;
@@ -960,12 +1008,13 @@
 
             if (text.includes('may i ask')) {
                 accumulatedQuestion = '';
-                // Only start listening for the actual question once this
-                // prompt has fully finished playing (see enqueueSpeech's
-                // onDone) — otherwise the mic can hear Nova asking this
-                // and mistake her own voice for the answer.
-                return enqueueSpeech('What are you asking for, sir?', function() {
-                    awaitingQuestion = true;
+                askMode = null;
+                // Only start listening for the reference-or-suggestion
+                // choice once this prompt has fully finished playing (see
+                // enqueueSpeech's onDone) — otherwise the mic can hear
+                // Nova asking this and mistake her own voice for the reply.
+                return enqueueSpeech('Do you want me to look for the reference or my suggestion, sir?', function() {
+                    awaitingAskMode = true;
                 });
             }
 
