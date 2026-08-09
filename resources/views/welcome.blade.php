@@ -75,6 +75,28 @@
             </span>
         </div>
     </button>
+    <button class="cyber-btn" id="task-btn" popovertarget="upgrade" popovertargetaction="show" aria-label="Task" data-action="Task">
+        <span class="backdrop">
+            <span class="corner"></span>
+        </span>
+        <kbd>U</kbd>
+        <span>Task</span>
+        <div class="glitch" aria-hidden="true">
+            <span class="backdrop">
+                <span class="corner"></span>
+            </span>
+            <kbd>U</kbd>
+            <span class="letters">
+                <span>U</span>
+                <span>p</span>
+                <span>g</span>
+                <span>r</span>
+                <span>a</span>
+                <span>d</span>
+                <span>e</span>
+            </span>
+        </div>
+    </button>
     <button class="cyber-btn" id="shop-btn" popovertarget="upgrade" popovertargetaction="show" aria-label="Shop" data-action="Shop">
         <span class="backdrop">
             <span class="corner"></span>
@@ -101,6 +123,9 @@
     @include('modal-quest-detail')
     @include('modal-status')
     @include('modal-ask')
+    @include('modal-task-create')
+    @include('modal-task-detail')
+    @include('modal-history')
     <a aria-label="Follow Jhey" class="bear-link" href="https://twitter.com/intent/follow?screen_name=jh3yy" target="_blank" rel="noreferrer noopener">
         <svg class="w-9" viewBox="0 0 969 955" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="161.191" cy="320.191" r="133.191" stroke="currentColor" stroke-width="20"></circle>
@@ -154,6 +179,26 @@
         let currentAnswer = null; // { question, text, sourceTitle, sourceUrl, lang }
         let awaitingPurchaseConfirmation = false;
         let pendingPurchaseId = null;
+
+        let currentTasks = [];
+        let activeTaskId = null;
+        let awaitingTaskCreateConfirmation = false;
+        let taskCreateModal = document.querySelector('#task-create');
+        let taskDetailModal = document.querySelector('#task-detail-view');
+        let taskDetailName = document.querySelector('#task-detail-name');
+        let taskDetailNameG = document.querySelector('#task-detail-name-glitch');
+        let taskDetailDescription = document.querySelector('#task-detail-description');
+        let taskDetailDescriptionG = document.querySelector('#task-detail-description-glitch');
+        let taskDetailProceed = document.querySelector('#task-detail-proceed');
+        let taskDetailReturnTo = 'upgrade'; // 'upgrade' | 'history-modal' — where Cancel/Proceed sends you back
+
+        let historyModal = document.querySelector('#history-modal');
+        let historyBody = document.querySelector('#history-body');
+        let historyBodyG = document.querySelector('#history-body-glitch');
+        let currentHistoryTasks = [];
+        let historyCurrentPage = 1;
+        let historyLastPage = 1;
+        let historyDateFilter = '';
 
         // Wrapping every content swap in a fresh .quest-anim element replays
         // the fade/slide-in keyframe (new nodes always start their animation).
@@ -457,6 +502,323 @@
             });
         }
 
+        // ---- Task ----
+        // Reuses the same #upgrade content modal as Daily/Main Quest/Shop
+        // (currentType just becomes 'task').
+        // "2026-08-15" -> "August 15, 2026". Appending a time avoids the
+        // classic bug where a bare "YYYY-MM-DD" string parses as UTC
+        // midnight and can display as the previous day in negative UTC
+        // offsets.
+        function formatTaskDate(dateStr) {
+            let parsed = new Date(dateStr + 'T00:00:00');
+            if (isNaN(parsed)) return dateStr;
+            return parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        }
+
+        function renderTaskList(tasks) {
+            let actionButtons = `
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    <button type="button" class="cyber-btn create-task-btn" style="width:50%;">
+                        <span class="backdrop"><span class="corner"></span></span>
+                        <span>Make New Task</span>
+                    </button>
+                    <button type="button" class="cyber-btn history-btn" style="width:50%;">
+                        <span class="backdrop"><span class="corner"></span></span>
+                        <span>History</span>
+                    </button>
+                </div>
+            `;
+
+            if (!tasks.length) {
+                return `
+                    <div class="quest-empty">
+                        <p>No tasks yet.</p>
+                        ${actionButtons}
+                    </div>
+                `;
+            }
+
+            let rows = tasks.map(function(task) {
+                return `
+                    <div class="quest-row task-row" data-id="${task.id}">
+                        <div class="quest-info">
+                            <span class="quest-title">${task.name}</span>
+                            <span class="quest-desc">${formatTaskDate(task.date)}</span>
+                        </div>
+                        <span class="quest-circle ${task.is_done ? 'is-done' : ''}" aria-hidden="true"></span>
+                    </div>
+                `;
+            }).join('');
+
+            return rows + actionButtons;
+        }
+
+        // List view only reads names ("nova membacakan task nya (namanya
+        // saja)") — full detail (name + description) is only spoken once a
+        // specific task is opened, see openTaskDetail below.
+        function buildTaskNamesNarration(tasks) {
+            let names = tasks.map(function(task, index) {
+                return (index + 1) + '. ' + task.name;
+            }).join(', ');
+
+            return 'You have ' + tasks.length + (tasks.length === 1 ? ' task: ' : ' tasks: ') + names + '.';
+        }
+
+        function loadTasks() {
+            currentType = 'task';
+            title.innerHTML = 'Task';
+            titleG.innerHTML = 'Task';
+            clearQuestTimer();
+            setModalContent('Loading...');
+
+            $.ajax({
+                url: '/tasks'
+                , type: 'GET'
+                , dataType: 'json'
+                , success: function(response) {
+                    currentTasks = response.tasks;
+                    setModalContent(renderTaskList(response.tasks));
+
+                    if (response.tasks.length) {
+                        enqueueSpeech(buildTaskNamesNarration(response.tasks));
+                    } else {
+                        enqueueSpeech('There are no tasks yet. Would you like me to start creating some?', function() {
+                            awaitingTaskCreateConfirmation = true;
+                        });
+                    }
+                }
+            });
+        }
+
+        function openTaskDetail(task) {
+            activeTaskId = task.id;
+            taskDetailName.textContent = task.name;
+            taskDetailNameG.textContent = task.name;
+
+            let description = task.description || 'No description.';
+            taskDetailDescription.textContent = description;
+            taskDetailDescriptionG.textContent = description;
+
+            // Already-completed tasks (opened from History) have nothing
+            // left to Proceed on.
+            taskDetailProceed.disabled = false;
+            taskDetailProceed.style.display = task.is_done ? 'none' : '';
+
+            enqueueSpeech(task.name + '. ' + description);
+
+            // Remember which list to return to on Cancel/Proceed — this can
+            // be opened from either the active Task list or from History.
+            let openModal = document.querySelector('[popover]:popover-open');
+            taskDetailReturnTo = (openModal && openModal.id === 'history-modal') ? 'history-modal' : 'upgrade';
+            if (openModal) openModal.hidePopover();
+            taskDetailModal.showPopover();
+        }
+
+        function openTaskCreate() {
+            document.querySelector('#task-create-date').value = '';
+            document.querySelector('#task-create-name').value = '';
+            document.querySelector('#task-create-description').value = '';
+            document.querySelector('#task-create-message').innerHTML = '';
+
+            document.querySelector('#upgrade').hidePopover();
+            taskCreateModal.showPopover();
+        }
+
+        document.querySelector('#task-create-cancel').addEventListener('click', function() {
+            taskCreateModal.hidePopover();
+            document.querySelector('#upgrade').showPopover();
+        });
+
+        document.querySelector('#task-create-proceed').addEventListener('click', function() {
+            let date = document.querySelector('#task-create-date').value;
+            let name = document.querySelector('#task-create-name').value;
+            let description = document.querySelector('#task-create-description').value;
+            let msg = document.querySelector('#task-create-message');
+
+            if (!date || !name) {
+                msg.innerHTML = 'Date and name are required.';
+                return;
+            }
+
+            $.ajax({
+                url: '/tasks'
+                , type: 'POST'
+                , data: {
+                    date: date
+                    , name: name
+                    , description: description
+                }
+                , dataType: 'json'
+                , success: function() {
+                    taskCreateModal.hidePopover();
+                    document.querySelector('#upgrade').showPopover();
+                    enqueueSpeech('Task created, sir.');
+                    loadTasks();
+                }
+                , error: function(response) {
+                    msg.innerHTML = response.responseJSON ? response.responseJSON.message : 'Failed to create task.';
+                }
+            });
+        });
+
+        document.querySelector('#task-detail-cancel').addEventListener('click', function() {
+            taskDetailModal.hidePopover();
+            if (taskDetailReturnTo === 'history-modal') {
+                historyModal.showPopover();
+            } else {
+                document.querySelector('#upgrade').showPopover();
+            }
+        });
+
+        document.querySelector('#task-detail-proceed').addEventListener('click', function() {
+            if (!activeTaskId) return;
+            taskDetailProceed.disabled = true;
+
+            $.ajax({
+                url: '/tasks/' + activeTaskId + '/complete'
+                , type: 'POST'
+                , dataType: 'json'
+                , success: function(response) {
+                    taskDetailModal.hidePopover();
+                    // A just-completed task drops off the active list and
+                    // moves to History, so always land back on the active
+                    // list refreshed — regardless of where it was opened from.
+                    document.querySelector('#upgrade').showPopover();
+                    enqueueSpeech(response.message);
+                    loadTasks();
+                }
+                , error: function(response) {
+                    taskDetailProceed.disabled = false;
+                    let msg = response.responseJSON ? response.responseJSON.message : 'Failed to complete task.';
+                    enqueueSpeech(msg);
+                }
+            });
+        });
+
+        document.querySelector('#task-btn').addEventListener('click', function() {
+            loadTasks();
+        });
+
+        // ---- History ----
+        function setHistoryContent(html) {
+            historyBody.innerHTML = `<div class="quest-anim">${html}</div>`;
+            historyBodyG.innerHTML = `<div class="quest-anim">${html}</div>`;
+            historyBody.scrollTop = 0;
+            historyBodyG.scrollTop = 0;
+
+            let maxHeight = Math.min(window.innerHeight * 0.5, 340);
+            let needsScroll = historyBody.scrollHeight > maxHeight;
+            historyBody.classList.toggle('is-scrollable', needsScroll);
+            historyBodyG.classList.toggle('is-scrollable', needsScroll);
+        }
+
+        historyBody.addEventListener('scroll', function() {
+            historyBodyG.scrollTop = historyBody.scrollTop;
+        });
+
+        function renderHistoryList(tasks, currentPage, lastPage) {
+            let filterHtml = `
+                <div class="task-field">
+                    <label class="status-label" for="history-date-filter">Filter by date</label>
+                    <input type="date" class="task-input" id="history-date-filter" value="${historyDateFilter}">
+                </div>
+                <button type="button" class="cyber-btn history-filter-btn" style="width:100%; margin-bottom:10px;">
+                    <span class="backdrop"><span class="corner"></span></span>
+                    <span>Apply Filter</span>
+                </button>
+            `;
+
+            if (!tasks.length) {
+                return filterHtml + '<div class="quest-empty"><p>No completed tasks yet.</p></div>';
+            }
+
+            let rows = tasks.map(function(task) {
+                return `
+                    <div class="quest-row task-row" data-id="${task.id}">
+                        <div class="quest-info">
+                            <span class="quest-title">${task.name}</span>
+                            <span class="quest-desc">${formatTaskDate(task.date)}</span>
+                        </div>
+                        <span class="quest-circle is-done" aria-hidden="true"></span>
+                    </div>
+                `;
+            }).join('');
+
+            let pagination = `
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    <button type="button" class="cyber-btn history-prev-btn" style="width:50%;" ${currentPage <= 1 ? 'disabled' : ''}>
+                        <span class="backdrop"><span class="corner"></span></span>
+                        <span>Previous</span>
+                    </button>
+                    <button type="button" class="cyber-btn history-next-btn" style="width:50%;" ${currentPage >= lastPage ? 'disabled' : ''}>
+                        <span class="backdrop"><span class="corner"></span></span>
+                        <span>Next</span>
+                    </button>
+                </div>
+                <p class="quest-exp" style="text-align:center; margin-top:6px;">Page ${currentPage} of ${lastPage}</p>
+            `;
+
+            return filterHtml + rows + pagination;
+        }
+
+        function loadHistory(page, dateFilter) {
+            historyCurrentPage = page || 1;
+            if (dateFilter !== undefined) historyDateFilter = dateFilter;
+
+            setHistoryContent('Loading...');
+
+            $.ajax({
+                url: '/tasks/history'
+                , type: 'GET'
+                , data: {
+                    page: historyCurrentPage
+                    , date: historyDateFilter
+                }
+                , dataType: 'json'
+                , success: function(response) {
+                    currentHistoryTasks = response.tasks;
+                    historyCurrentPage = response.current_page;
+                    historyLastPage = response.last_page;
+                    setHistoryContent(renderHistoryList(response.tasks, response.current_page, response.last_page));
+                }
+            });
+        }
+
+        function openHistory() {
+            let openModal = document.querySelector('[popover]:popover-open');
+            if (openModal) openModal.hidePopover();
+            historyModal.showPopover();
+            loadHistory(1, '');
+        }
+
+        document.querySelector('#history-cancel').addEventListener('click', function() {
+            historyModal.hidePopover();
+            document.querySelector('#upgrade').showPopover();
+            loadTasks();
+        });
+
+        document.querySelector('#history-content').addEventListener('click', function(e) {
+            if (e.target && e.target.classList.contains('history-filter-btn')) {
+                let dateVal = document.querySelector('#history-date-filter').value;
+                return loadHistory(1, dateVal);
+            }
+
+            if (e.target && e.target.classList.contains('history-prev-btn') && !e.target.disabled) {
+                return loadHistory(Math.max(1, historyCurrentPage - 1));
+            }
+
+            if (e.target && e.target.classList.contains('history-next-btn') && !e.target.disabled) {
+                return loadHistory(Math.min(historyLastPage, historyCurrentPage + 1));
+            }
+
+            let taskRow = e.target.closest ? e.target.closest('.task-row') : null;
+            if (taskRow) {
+                let taskId = Number(taskRow.getAttribute('data-id'));
+                let task = currentHistoryTasks.find(t => t.id === taskId);
+                if (task) openTaskDetail(task);
+            }
+        });
+
         function updateStatusDisplay(exp, level, stats, points) {
             let levelEl = document.querySelector('#status-level-value');
             let expEl = document.querySelector('#status-exp-value');
@@ -736,8 +1098,26 @@
                 return;
             }
 
+            if (e.target && e.target.classList.contains('create-task-btn')) {
+                openTaskCreate();
+                return;
+            }
+
+            if (e.target && e.target.classList.contains('history-btn')) {
+                openHistory();
+                return;
+            }
+
+            let taskRow = e.target.closest ? e.target.closest('.task-row') : null;
+            if (taskRow) {
+                let taskId = Number(taskRow.getAttribute('data-id'));
+                let task = currentTasks.find(t => t.id === taskId);
+                if (task) openTaskDetail(task);
+                return;
+            }
+
             let row = e.target.closest ? e.target.closest('.quest-row') : null;
-            if (row && !row.classList.contains('shop-row')) {
+            if (row && !row.classList.contains('shop-row') && !row.classList.contains('task-row')) {
                 let id = Number(row.getAttribute('data-id'));
                 let quest = currentQuests.find(q => q.id === id);
                 if (quest) openQuestDetail(quest);
@@ -1108,6 +1488,20 @@
                 return;
             }
 
+            // "There are no tasks yet. Would you like me to start creating
+            // some?" — only "yes"/"no" mean anything here.
+            if (awaitingTaskCreateConfirmation) {
+                if (hasWord(text, 'yes')) {
+                    awaitingTaskCreateConfirmation = false;
+                    return openTaskCreate();
+                }
+                if (hasWord(text, 'no')) {
+                    awaitingTaskCreateConfirmation = false;
+                    return enqueueSpeech('Understood, sir.');
+                }
+                return;
+            }
+
             if (text.includes('you up')) return enqueueSpeech('For you sir, always');
 
             if (text.includes('hi friday')) return enqueueSpeech('Hallo sir, What can I help you with today?');
@@ -1148,9 +1542,24 @@
                 document.querySelector('#shop-btn').click();
                 return enqueueSpeech('Open the shop');
             }
+            if (hasWord(text, 'open task')) {
+                document.querySelector('#task-btn').click();
+                return enqueueSpeech('Open the task');
+            }
+            if (hasWord(text, 'open history')) {
+                openHistory();
+                return enqueueSpeech('Open the history');
+            }
 
             let modal = document.querySelector('[popover]:popover-open');
             if (!modal) return;
+
+            // Declared here (not down by the quest-row loop that used to be
+            // their only user) so the Task-scoped block below can reuse
+            // them too — both "quest N" and "task N" follow the same
+            // ordinal/number-word/digit matching.
+            let ordinals = ['first', 'second', 'third', 'fourth', 'fifth'];
+            let numberWords = ['one', 'two', 'three', 'four', 'five'];
 
             if (modal.id === 'ask-modal') {
                 if (text.includes('search the reference') || text.includes('buka referensi') || text.includes('open reference')) {
@@ -1165,6 +1574,54 @@
                 if (text.includes('change english')) return translateCurrentAnswer('en');
             }
 
+            if (modal.id === 'upgrade' && currentType === 'task') {
+                if (text.includes('create new task') || text.includes('new task') || text.includes('create task')) {
+                    let btn = modal.querySelector('.create-task-btn');
+                    if (btn) return btn.click();
+                }
+
+                for (let i = 0; i < ordinals.length; i++) {
+                    let isMatch = text.includes(ordinals[i] + ' task')
+                        || text.includes('task ' + numberWords[i])
+                        || text.includes('task ' + (i + 1))
+                        || hasWord(text, numberWords[i])
+                        || hasWord(text, String(i + 1));
+
+                    if (isMatch) {
+                        let rows = modal.querySelectorAll('.task-row');
+                        if (rows[i]) rows[i].click();
+                        return;
+                    }
+                }
+            }
+
+            // History — "same display, same commands" as the Task list
+            // (point-by-point selection), plus its own paging commands.
+            if (modal.id === 'history-modal') {
+                if (hasWord(text, 'next')) {
+                    loadHistory(Math.min(historyLastPage, historyCurrentPage + 1));
+                    return;
+                }
+                if (hasWord(text, 'previous')) {
+                    loadHistory(Math.max(1, historyCurrentPage - 1));
+                    return;
+                }
+
+                for (let i = 0; i < ordinals.length; i++) {
+                    let isMatch = text.includes(ordinals[i] + ' task')
+                        || text.includes('task ' + numberWords[i])
+                        || text.includes('task ' + (i + 1))
+                        || hasWord(text, numberWords[i])
+                        || hasWord(text, String(i + 1));
+
+                    if (isMatch) {
+                        let rows = document.querySelectorAll('#history-body .task-row');
+                        if (rows[i]) rows[i].click();
+                        return;
+                    }
+                }
+            }
+
             if (text.includes('generate new quest')) {
                 let btn = modal.querySelector('.generate-new-quest-btn');
                 if (btn) return btn.click();
@@ -1175,8 +1632,6 @@
                 if (btn) return btn.click();
             }
 
-            let ordinals = ['first', 'second', 'third', 'fourth', 'fifth'];
-            let numberWords = ['one', 'two', 'three', 'four', 'five'];
             for (let i = 0; i < ordinals.length; i++) {
                 // Recognition sometimes transcribes a spoken number as the
                 // digit instead of the word (e.g. "four" -> "4"), so match

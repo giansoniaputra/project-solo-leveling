@@ -8,6 +8,7 @@ use App\Http\Controllers\ModalController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\QuestController;
 use App\Http\Controllers\ShopController;
+use App\Http\Controllers\TaskController;
 use App\Http\Controllers\VoiceController;
 use Laragear\WebAuthn\Http\Routes as WebAuthnRoutes;
 use App\Http\Controllers\WebAuthn\WebAuthnRegisterController;
@@ -57,6 +58,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/voice/translate', [VoiceController::class, 'translate']);
     Route::get('/shop', [ShopController::class, 'index']);
     Route::post('/shop/{item}/purchase', [ShopController::class, 'purchase']);
+    Route::get('/tasks', [TaskController::class, 'index']);
+    Route::post('/tasks', [TaskController::class, 'store']);
+    Route::get('/tasks/history', [TaskController::class, 'history']);
+    Route::post('/tasks/{task}/complete', [TaskController::class, 'complete']);
 });
 
 Route::get('/logout', function (Request $request) {

@@ -1411,4 +1411,37 @@ div.tp-dfwv {
         pointer-events: none;
         opacity: 0.45;
     }
+
+    /* Task create form — stacked label-above-input fields (unlike Status's
+       inline label-beside-value rows, task name/description need the full
+       width to be usable). */
+    .task-field {
+        margin-bottom: 0.75rem;
+    }
+
+    .task-field .status-label {
+        display: block;
+        margin-bottom: 0.25rem;
+    }
+
+    .task-input {
+        width: 100%;
+        background: transparent;
+        border: 1px solid var(--accent);
+        border-radius: 4px;
+        color: var(--accent);
+        padding: 0.4rem 0.6rem;
+        font-size: 0.85rem;
+        font-family: inherit;
+        resize: vertical;
+    }
+
+    .task-input:focus {
+        outline: none;
+        border-width: 2px;
+    }
+
+    .task-input::placeholder {
+        color: color-mix(in oklch, var(--accent), transparent 55%);
+    }
 }
