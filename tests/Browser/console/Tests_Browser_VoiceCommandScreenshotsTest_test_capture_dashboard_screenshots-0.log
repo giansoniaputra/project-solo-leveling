@@ -1,0 +1,32 @@
+[
+    {
+        "level": "SEVERE",
+        "message": "http:\/\/127.0.0.1:8000\/ - Access to font at 'https:\/\/assets.codepen.io\/605876\/Blender-Pro-Bold.otf' from origin 'http:\/\/127.0.0.1:8000' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        "source": "javascript",
+        "timestamp": 1786274632964
+    },
+    {
+        "level": "SEVERE",
+        "message": "https:\/\/assets.codepen.io\/605876\/Blender-Pro-Bold.otf - Failed to load resource: net::ERR_FAILED",
+        "source": "network",
+        "timestamp": 1786274632964
+    },
+    {
+        "level": "SEVERE",
+        "message": "http:\/\/127.0.0.1:8000\/ - Access to script at 'https:\/\/cdn.skypack.dev\/tweakpane@4.0.4' from origin 'http:\/\/127.0.0.1:8000' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        "source": "javascript",
+        "timestamp": 1786274633364
+    },
+    {
+        "level": "SEVERE",
+        "message": "https:\/\/cdn.skypack.dev\/tweakpane@4.0.4 - Failed to load resource: net::ERR_FAILED",
+        "source": "network",
+        "timestamp": 1786274633364
+    },
+    {
+        "level": "WARNING",
+        "message": "http:\/\/127.0.0.1:8000\/assets-front-end\/script.js 62:16 \"Tweakpane config panel failed to load, skipping it:\" TypeError: Failed to fetch dynamically imported module: https:\/\/cdn.skypack.dev\/tweakpane@4.0.4",
+        "source": "console-api",
+        "timestamp": 1786274633364
+    }
+]
