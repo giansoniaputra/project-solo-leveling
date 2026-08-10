@@ -1677,9 +1677,7 @@
             }
 
             if (text.includes('what is my status') || text.includes('my status')) {
-                if (document.querySelector('#status-modal:popover-open')) {
-                    return requestStatusSummary();
-                }
+                return requestStatusSummary();
             }
 
             if (text.includes('open daily quest')) {
