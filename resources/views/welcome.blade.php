@@ -1340,8 +1340,8 @@
         let voiceEnabled = false;
         let voiceQueue = [];
         let voiceIsSpeaking = false;
-        let voiceSuppressRestart = false;
         let voiceRecognition = null;
+        let currentAudioEl = null;
         let voiceToggleBtn = document.querySelector('#voice-toggle-btn');
         let voiceIndicator = document.querySelector('#voice-indicator');
         let voiceText = document.querySelector('#voice-text');
@@ -1460,15 +1460,17 @@
         // when Voice Mode is off, so call sites never need to check
         // voiceEnabled themselves.
         //
-        // The microphone is paused for the whole time anything is playing
-        // (see processVoiceQueue) so it never picks up Nova's own voice —
-        // an earlier version left it listening for mid-sentence interrupts,
-        // but that caused her to occasionally mishear herself as a command.
+        // The microphone keeps listening the whole time Nova is talking
+        // (see processVoiceQueue) so saying "stop" can interrupt her —
+        // but the recognition handler ignores everything except "stop"
+        // while voiceIsSpeaking is true, so she doesn't mishear fragments
+        // of her own voice as ordinary commands.
         //
         // onDone (optional) fires once this specific message finishes
         // playing — used to delay flipping state (like awaitingQuestion)
-        // until after the prompt is fully spoken and the mic is listening
-        // again, e.g. handleVoiceCommand's "may i ask" branch.
+        // until after the prompt is fully spoken, e.g. handleVoiceCommand's
+        // "may i ask" branch. It's skipped entirely if "stop" cuts the
+        // message off early.
         function enqueueSpeech(message, onDone) {
             if (!voiceEnabled) return;
             voiceQueue.push({
@@ -1478,30 +1480,27 @@
             processVoiceQueue();
         }
 
+        // Cuts off whatever Nova is currently saying — and clears anything
+        // still queued behind it — the moment the user says "stop". Queued
+        // onDone callbacks are dropped, not fired, since "stop" means abort
+        // the flow, not skip ahead to its post-speech state.
+        function stopSpeaking() {
+            voiceQueue = [];
+            if (currentAudioEl) {
+                currentAudioEl.pause();
+                currentAudioEl = null;
+            }
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            stopEqualizerLoop();
+            voiceIsSpeaking = false;
+            voiceText.textContent = 'Listening...';
+        }
+
         function processVoiceQueue() {
             if (voiceIsSpeaking) return;
-
-            if (voiceQueue.length === 0) {
-                voiceSuppressRestart = false;
-                if (voiceEnabled && voiceRecognition) {
-                    try {
-                        voiceRecognition.start();
-                    } catch (e) {
-                        // already running — ignore
-                    }
-                }
-                return;
-            }
+            if (voiceQueue.length === 0) return;
 
             voiceIsSpeaking = true;
-            voiceSuppressRestart = true;
-            if (voiceRecognition) {
-                try {
-                    voiceRecognition.stop();
-                } catch (e) {
-                    // already stopped — ignore
-                }
-            }
 
             let item = voiceQueue.shift();
             let message = item.text;
@@ -1510,6 +1509,7 @@
             function done() {
                 stopEqualizerLoop();
                 voiceIsSpeaking = false;
+                currentAudioEl = null;
                 if (item.onDone) item.onDone();
                 processVoiceQueue();
             }
@@ -1537,6 +1537,7 @@
                 })
                 .then(function(blob) {
                     let audio = new Audio(URL.createObjectURL(blob));
+                    currentAudioEl = audio;
                     audio.onended = done;
                     audio.onerror = speakWithBrowserVoice;
                     audio.play();
@@ -1603,9 +1604,10 @@
 
             // Only "yes"/"no"/"cancel" mean anything here — anything else
             // is ignored and we keep waiting (awaitingConfirmation stays
-            // true). The mic is paused while "Is that all you need, sir?"
-            // plays (see processVoiceQueue), so it's only ever listening
-            // for the answer once she's actually finished asking.
+            // true). Speech recognized while "Is that all you need, sir?"
+            // is still playing is ignored (except "stop") by the result
+            // handler, so this only ever sees the answer once she's
+            // actually finished asking.
             if (awaitingConfirmation) {
                 if (hasWord(text, 'yes')) {
                     awaitingConfirmation = false;
@@ -1872,15 +1874,24 @@
             voiceRecognition.addEventListener('result', function(event) {
                 let last = event.results[event.results.length - 1];
                 let transcript = last[0].transcript.toLowerCase().trim();
+
+                if (voiceIsSpeaking) {
+                    // While Nova is talking, only "stop" means anything —
+                    // everything else is ignored so she doesn't react to
+                    // fragments of her own voice as a command.
+                    if (hasWord(transcript, 'stop')) stopSpeaking();
+                    return;
+                }
+
                 voiceText.textContent = 'Heard: "' + transcript + '"';
                 handleVoiceCommand(transcript);
             });
 
             voiceRecognition.addEventListener('end', function() {
-                // Don't auto-restart while deliberately paused for speech
-                // playback (voiceSuppressRestart) — processVoiceQueue()
-                // restarts it itself once the queue drains.
-                if (voiceEnabled && !voiceSuppressRestart) {
+                // Recognition sessions can end on their own (e.g. a
+                // browser silence timeout) even in continuous mode —
+                // restart it while Voice Mode is still on.
+                if (voiceEnabled) {
                     try {
                         voiceRecognition.start();
                     } catch (e) {
