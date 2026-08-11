@@ -152,6 +152,7 @@
     @include('modal-my-task')
     @include('modal-my-task-review')
     @include('modal-my-task-result')
+    @include('modal-level-up')
     <a aria-label="Follow Jhey" class="bear-link" href="https://twitter.com/intent/follow?screen_name=jh3yy" target="_blank" rel="noreferrer noopener">
         <svg class="w-9" viewBox="0 0 969 955" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="161.191" cy="320.191" r="133.191" stroke="currentColor" stroke-width="20"></circle>
@@ -807,10 +808,10 @@
                     enqueueSpeech('Quest logged. You gained ' + expAwarded + ' EXP, sir.');
                     pendingTaskReview = null;
 
-                    // Reflect the new exp/level/stats in the Status popup
-                    // immediately, same as quest completion does, instead of
-                    // leaving it showing stale numbers until a page refresh.
-                    updateStatusDisplay(response.exp, response.level, response.stats, undefined, response.exp_into_level, response.exp_for_next_level);
+                    // Opens Status and animates the gain in, same as quest
+                    // completion — instead of leaving it showing stale
+                    // numbers until a page refresh.
+                    celebrateStatGains(response.exp, response.level, response.stats, undefined, response.exp_into_level, response.exp_for_next_level);
                 }
                 , error: function(response) {
                     let msg = response.responseJSON ? response.responseJSON.message : 'Failed to save your quest, sir.';
@@ -1014,6 +1015,165 @@
             }
         }
 
+        // Counts a number from `from` to `to` over ~800ms (requestAnimationFrame,
+        // not a fixed-step timer) so it reads as the EXP bar filling up rather
+        // than snapping straight to the new total.
+        function animateExpCount(from, to, onStep, onDone) {
+            if (from === to) {
+                onStep(to);
+                if (onDone) onDone();
+                return;
+            }
+
+            let duration = 800;
+            let start = null;
+
+            function frame(timestamp) {
+                if (start === null) start = timestamp;
+                let progress = Math.min(1, (timestamp - start) / duration);
+                onStep(Math.round(from + (to - from) * progress));
+
+                if (progress < 1) {
+                    requestAnimationFrame(frame);
+                } else if (onDone) {
+                    onDone();
+                }
+            }
+
+            requestAnimationFrame(frame);
+        }
+
+        // Increments an element's displayed integer one point at a time until
+        // it reaches `to` — a visible tick-by-tick count, not a smooth
+        // interpolation like the EXP bar above, per how stats/points are
+        // meant to read as they're gained.
+        function animateStepCount(el, from, to, onDone) {
+            if (!el || from === to) {
+                if (onDone) onDone();
+                return;
+            }
+
+            let current = from;
+            let direction = to > from ? 1 : -1;
+            let timer = setInterval(function() {
+                current += direction;
+                el.textContent = current;
+                if (current === to) {
+                    clearInterval(timer);
+                    if (onDone) onDone();
+                }
+            }, 150);
+        }
+
+        // Opens Status and animates the EXP bar/number and every stat/point
+        // up to their new totals — used anywhere completing something
+        // actually earns a reward (quest completion, My Task). Never used
+        // for penalties, which stay an instant update via the plain
+        // updateStatusDisplay() above — a Hunter losing EXP doesn't warrant
+        // Nova proactively popping Status open to show it off.
+        function celebrateStatGains(exp, level, stats, points, expIntoLevel, expForNextLevel) {
+            let levelEl = document.querySelector('#status-level-value');
+            let expEl = document.querySelector('#status-exp-value');
+            let fillEl = document.querySelector('#status-exp-fill');
+            let statusModal = document.querySelector('#status-modal');
+
+            if (!statusModal.matches(':popover-open')) statusModal.showPopover();
+
+            let oldLevel = parseInt(levelEl.textContent, 10) || 1;
+            let oldExpParts = (expEl.textContent || '0 / 1000').split('/');
+            let oldExpIntoLevel = parseInt(oldExpParts[0], 10) || 0;
+            let oldExpForNextLevel = parseInt(oldExpParts[1], 10) || expForNextLevel;
+
+            function runSegment(fromExp, toExp, maxExp, onDone) {
+                animateExpCount(fromExp, toExp, function(value) {
+                    expEl.textContent = value + ' / ' + maxExp;
+                    fillEl.style.width = Math.min(100, value / maxExp * 100) + '%';
+                }, onDone);
+            }
+
+            // Stats all tick up together (not one-by-one among themselves),
+            // but only start once EXP has fully finished, and points only
+            // start once every stat has landed — EXP, then stats, then
+            // points, never overlapping.
+            function animateStats(onDone) {
+                if (!stats) return onDone();
+
+                let keys = ['str', 'agi', 'per', 'vit', 'intelligence'];
+                let remaining = keys.length;
+
+                function oneDone() {
+                    remaining--;
+                    if (remaining === 0) onDone();
+                }
+
+                keys.forEach(function(key) {
+                    let el = document.querySelector('#status-' + (key === 'intelligence' ? 'int' : key) + '-value');
+                    if (el) {
+                        animateStepCount(el, parseInt(el.textContent, 10) || 0, stats[key], oneDone);
+                    } else {
+                        oneDone();
+                    }
+                });
+            }
+
+            function animatePoints(onDone) {
+                if (points === undefined) return onDone();
+                let pointsEl = document.querySelector('#status-points-value');
+                if (pointsEl) {
+                    animateStepCount(pointsEl, parseInt(pointsEl.textContent, 10) || 0, points, onDone);
+                } else {
+                    onDone();
+                }
+            }
+
+            function afterExp() {
+                animateStats(function() {
+                    animatePoints(function() {
+                        if (level > oldLevel) celebrateLevelUp(level);
+                    });
+                });
+            }
+
+            if (level > oldLevel) {
+                // Fill the old level's bar the rest of the way first, then
+                // reset and count up into the new level — reads as an
+                // actual level-up instead of the bar jumping backwards.
+                runSegment(oldExpIntoLevel, oldExpForNextLevel, oldExpForNextLevel, function() {
+                    levelEl.textContent = level;
+                    runSegment(0, expIntoLevel, expForNextLevel, afterExp);
+                });
+            } else {
+                runSegment(oldExpIntoLevel, expIntoLevel, expForNextLevel, afterExp);
+            }
+        }
+
+        // Runs once celebrateStatGains' exp/stat/point animations have all
+        // finished, only when they pushed the Hunter into a new level: swaps
+        // Status out for a dedicated announcement, has Nova congratulate
+        // them, then closes itself and brings Status back once she's done
+        // talking. Voice Mode off means enqueueSpeech's onDone never fires
+        // (it no-ops entirely), so this falls back to a timed auto-return
+        // instead of getting stuck open.
+        function celebrateLevelUp(newLevel) {
+            let statusModal = document.querySelector('#status-modal');
+            let levelUpModal = document.querySelector('#level-up-modal');
+
+            document.querySelector('#level-up-value').textContent = 'Level ' + newLevel;
+            statusModal.hidePopover();
+            levelUpModal.showPopover();
+
+            function returnToStatus() {
+                levelUpModal.hidePopover();
+                statusModal.showPopover();
+            }
+
+            if (voiceEnabled) {
+                enqueueSpeech('Congratulation sir. Your level has increased to level ' + newLevel, returnToStatus);
+            } else {
+                setTimeout(returnToStatus, 2500);
+            }
+        }
+
         function openQuestDetail(quest) {
             activeQuestId = quest.id;
             let done = quest.progress && quest.progress.status;
@@ -1057,16 +1217,10 @@
                 , dataType: 'json'
                 , success: function(response) {
                     questDetail.hidePopover();
-                    document.querySelector('#upgrade').showPopover();
+                    document.querySelector('#upgrade').hidePopover();
                     clearQuestTimer();
-                    updateStatusDisplay(response.exp, response.level, response.stats, response.points, response.exp_into_level, response.exp_for_next_level);
-                    setModalContent(`
-                        <div class="quest-empty">
-                            <p>${response.message}</p>
-                            <p class="quest-exp">EXP: ${response.exp} | Level: ${response.level} | Points: ${response.points}</p>
-                        </div>
-                    `);
-                    setTimeout(() => loadQuests(currentType), 1500);
+                    celebrateStatGains(response.exp, response.level, response.stats, response.points, response.exp_into_level, response.exp_for_next_level);
+                    loadQuests(currentType);
                 }
                 , error: function(response) {
                     qdProceed.disabled = false;
