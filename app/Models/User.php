@@ -40,6 +40,11 @@ class User extends Authenticatable
         return $this->hasMany(Conversation::class);
     }
 
+    public function myQuestLogs(): HasMany
+    {
+        return $this->hasMany(MyQuestLog::class);
+    }
+
     /**
      * Turns cumulative EXP into a level, the EXP earned within that level,
      * and how much EXP the level needs. Each level-up costs 500 more than

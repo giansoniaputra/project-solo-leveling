@@ -50,6 +50,18 @@ class VoiceController extends Controller
                 return response()->json(['message' => 'Failed to synthesize speech: '.$e->getMessage()], 502);
             }
 
+            // The SDK's audio endpoint returns the raw response body as-is
+            // without validating it's actually audio — an API error (e.g. an
+            // invalid key) comes back as a JSON string here instead of
+            // throwing, and would otherwise get cached and served as a
+            // "successful" empty/broken mp3 forever. A real mp3 never starts
+            // with '{', so this is a cheap, reliable way to catch that.
+            if (str_starts_with(ltrim($audio), '{')) {
+                $message = json_decode($audio, true)['error']['message'] ?? 'Unknown error';
+
+                return response()->json(['message' => 'Failed to synthesize speech: '.$message], 502);
+            }
+
             Storage::disk('local')->put($path, $audio);
         }
 

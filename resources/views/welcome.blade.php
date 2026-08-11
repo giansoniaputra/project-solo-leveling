@@ -119,6 +119,28 @@
             </span>
         </div>
     </button>
+    <button class="cyber-btn" id="my-task-btn" popovertarget="my-task-modal" popovertargetaction="show" aria-label="My Task" data-action="My Task">
+        <span class="backdrop">
+            <span class="corner"></span>
+        </span>
+        <kbd>U</kbd>
+        <span>My Task</span>
+        <div class="glitch" aria-hidden="true">
+            <span class="backdrop">
+                <span class="corner"></span>
+            </span>
+            <kbd>U</kbd>
+            <span class="letters">
+                <span>U</span>
+                <span>p</span>
+                <span>g</span>
+                <span>r</span>
+                <span>a</span>
+                <span>d</span>
+                <span>e</span>
+            </span>
+        </div>
+    </button>
     @include('modal')
     @include('modal-quest-detail')
     @include('modal-status')
@@ -127,6 +149,9 @@
     @include('modal-task-detail')
     @include('modal-history')
     @include('modal-conversation-history')
+    @include('modal-my-task')
+    @include('modal-my-task-review')
+    @include('modal-my-task-result')
     <a aria-label="Follow Jhey" class="bear-link" href="https://twitter.com/intent/follow?screen_name=jh3yy" target="_blank" rel="noreferrer noopener">
         <svg class="w-9" viewBox="0 0 969 955" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="161.191" cy="320.191" r="133.191" stroke="currentColor" stroke-width="20"></circle>
@@ -193,6 +218,12 @@
         let taskDetailDescriptionG = document.querySelector('#task-detail-description-glitch');
         let taskDetailProceed = document.querySelector('#task-detail-proceed');
         let taskDetailReturnTo = 'upgrade'; // 'upgrade' | 'history-modal' — where Cancel/Proceed sends you back
+
+        let myTaskModal = document.querySelector('#my-task-modal');
+        let myTaskReviewModal = document.querySelector('#my-task-review-modal');
+        let myTaskResultModal = document.querySelector('#my-task-result-modal');
+        let awaitingTaskReviewConfirmation = false;
+        let pendingTaskReview = null; // last proposal from /my-task/review — re-populates the review modal on confirm-retry, and holds exp_awarded for the closing speech line
 
         let historyModal = document.querySelector('#history-modal');
         let historyBody = document.querySelector('#history-body');
@@ -682,6 +713,118 @@
                     msg.innerHTML = response.responseJSON ? response.responseJSON.message : 'Failed to create task.';
                 }
             });
+        });
+
+        // ---- My Task (AI-reviewed quest log) ----
+        // Free-text self-report -> AI grades it (exp/stat proposal, not yet
+        // saved) -> Hunter confirms -> proposal is persisted and applied to
+        // the Hunter's exp/stats. Distinct from the Quest/Task systems above:
+        // there's no pre-defined quest here, the reward is determined
+        // retroactively from whatever the Hunter says they did.
+        function openMyTask() {
+            document.querySelector('#my-task-description').value = '';
+            document.querySelector('#my-task-message').innerHTML = '';
+            enqueueSpeech('What quests have you completed, sir?');
+        }
+
+        document.querySelector('#my-task-btn').addEventListener('click', openMyTask);
+
+        document.querySelector('#my-task-cancel').addEventListener('click', function() {
+            myTaskModal.hidePopover();
+        });
+
+        function renderTaskReview(review) {
+            document.querySelector('#my-task-review-summary').textContent = review.summary;
+            document.querySelector('#my-task-review-exp').textContent = '+' + review.exp_awarded;
+            document.querySelector('#my-task-review-str').textContent = '+' + review.stats.str;
+            document.querySelector('#my-task-review-agi').textContent = '+' + review.stats.agi;
+            document.querySelector('#my-task-review-per').textContent = '+' + review.stats.per;
+            document.querySelector('#my-task-review-vit').textContent = '+' + review.stats.vit;
+            document.querySelector('#my-task-review-int').textContent = '+' + review.stats.intelligence;
+        }
+
+        document.querySelector('#my-task-proceed').addEventListener('click', function() {
+            let description = document.querySelector('#my-task-description').value.trim();
+            let msg = document.querySelector('#my-task-message');
+
+            if (!description) {
+                msg.innerHTML = 'Please describe what you completed.';
+                return;
+            }
+
+            msg.innerHTML = 'The System is reviewing your quest...';
+            enqueueSpeech('Processing');
+
+            $.ajax({
+                url: '/my-task/review'
+                , type: 'POST'
+                , data: {
+                    description: description
+                }
+                , dataType: 'json'
+                , success: function(response) {
+                    msg.innerHTML = '';
+                    pendingTaskReview = response;
+                    renderTaskReview(response);
+                    myTaskModal.hidePopover();
+                    myTaskReviewModal.showPopover();
+
+                    enqueueSpeech(response.summary, function() {
+                        enqueueSpeech('Do you want me to enter it into the database, sir?', function() {
+                            awaitingTaskReviewConfirmation = true;
+                        });
+                    });
+                }
+                , error: function(response) {
+                    msg.innerHTML = response.responseJSON ? response.responseJSON.message : 'Failed to review your quest.';
+                    enqueueSpeech('The System failed to process your quest, sir.');
+                }
+            });
+        });
+
+        function cancelTaskReview() {
+            awaitingTaskReviewConfirmation = false;
+            myTaskReviewModal.hidePopover();
+            myTaskModal.showPopover();
+        }
+
+        function confirmTaskReview() {
+            awaitingTaskReviewConfirmation = false;
+            let expAwarded = pendingTaskReview ? pendingTaskReview.exp_awarded : 0;
+
+            enqueueSpeech('Oke sir I\'ll processing it into database');
+            document.querySelectorAll('[popover]:popover-open').forEach(function(m) { m.hidePopover(); });
+
+            $.ajax({
+                url: '/my-task/confirm'
+                , type: 'POST'
+                , dataType: 'json'
+                , success: function(response) {
+                    document.querySelector('#my-task-result-summary').textContent = response.summary;
+                    document.querySelector('#my-task-result-exp').textContent = response.exp;
+                    document.querySelector('#my-task-result-level').textContent = response.level;
+                    myTaskResultModal.showPopover();
+                    enqueueSpeech('Quest logged. You gained ' + expAwarded + ' EXP, sir.');
+                    pendingTaskReview = null;
+                }
+                , error: function(response) {
+                    let msg = response.responseJSON ? response.responseJSON.message : 'Failed to save your quest, sir.';
+                    enqueueSpeech(msg);
+
+                    if (pendingTaskReview) {
+                        myTaskReviewModal.showPopover();
+                    } else {
+                        myTaskModal.showPopover();
+                    }
+                }
+            });
+        }
+
+        document.querySelector('#my-task-review-revise').addEventListener('click', cancelTaskReview);
+        document.querySelector('#my-task-review-confirm').addEventListener('click', confirmTaskReview);
+
+        document.querySelector('#my-task-result-close').addEventListener('click', function() {
+            myTaskResultModal.hidePopover();
         });
 
         document.querySelector('#task-detail-cancel').addEventListener('click', function() {
@@ -1658,6 +1801,14 @@
                 return;
             }
 
+            // "Do you want me to enter it into the database, sir?" — only
+            // "yes"/"no" mean anything here.
+            if (awaitingTaskReviewConfirmation) {
+                if (hasWord(text, 'yes')) return confirmTaskReview();
+                if (hasWord(text, 'no')) return cancelTaskReview();
+                return;
+            }
+
             if (text.includes('you up')) return enqueueSpeech('For you sir, always');
 
             if (text.includes('hi friday')) return enqueueSpeech('Hallo sir, What can I help you with today?');
@@ -1699,6 +1850,10 @@
             if (hasWord(text, 'open task')) {
                 document.querySelector('#task-btn').click();
                 return enqueueSpeech('Open the task');
+            }
+            if (text.includes('open my quest')) {
+                document.querySelector('#my-task-btn').click();
+                return;
             }
             if (hasWord(text, 'open history')) {
                 openHistory();

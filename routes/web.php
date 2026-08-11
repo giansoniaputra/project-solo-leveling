@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ModalController;
+use App\Http\Controllers\MyTaskController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\QuestController;
 use App\Http\Controllers\ShopController;
@@ -63,6 +64,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/tasks', [TaskController::class, 'store']);
     Route::get('/tasks/history', [TaskController::class, 'history']);
     Route::post('/tasks/{task}/complete', [TaskController::class, 'complete']);
+    Route::post('/my-task/review', [MyTaskController::class, 'review']);
+    Route::post('/my-task/confirm', [MyTaskController::class, 'confirm']);
 });
 
 Route::get('/logout', function (Request $request) {
