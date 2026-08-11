@@ -90,6 +90,13 @@ class MyTaskController extends Controller
             'level' => $user->level,
             'exp_into_level' => $levelInfo['exp_into_level'],
             'exp_for_next_level' => $levelInfo['exp_for_next_level'],
+            'stats' => [
+                'str' => $user->str,
+                'agi' => $user->agi,
+                'per' => $user->per,
+                'vit' => $user->vit,
+                'intelligence' => $user->intelligence,
+            ],
         ]);
     }
 }

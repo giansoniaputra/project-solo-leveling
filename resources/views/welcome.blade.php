@@ -806,6 +806,11 @@
                     myTaskResultModal.showPopover();
                     enqueueSpeech('Quest logged. You gained ' + expAwarded + ' EXP, sir.');
                     pendingTaskReview = null;
+
+                    // Reflect the new exp/level/stats in the Status popup
+                    // immediately, same as quest completion does, instead of
+                    // leaving it showing stale numbers until a page refresh.
+                    updateStatusDisplay(response.exp, response.level, response.stats, undefined, response.exp_into_level, response.exp_for_next_level);
                 }
                 , error: function(response) {
                     let msg = response.responseJSON ? response.responseJSON.message : 'Failed to save your quest, sir.';
