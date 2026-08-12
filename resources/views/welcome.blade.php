@@ -225,6 +225,8 @@
         let myTaskResultModal = document.querySelector('#my-task-result-modal');
         let awaitingTaskReviewConfirmation = false;
         let pendingTaskReview = null; // last proposal from /my-task/review — re-populates the review modal on confirm-retry, and holds exp_awarded for the closing speech line
+        let awaitingQuestDictationConfirmation = false; // "Do you want me to write your quest, sir?"
+        let questDictationActive = false; // true while Nova is transcribing spoken quest text into the textarea instead of listening for commands
 
         let historyModal = document.querySelector('#history-modal');
         let historyBody = document.querySelector('#history-body');
@@ -725,14 +727,49 @@
         function openMyTask() {
             document.querySelector('#my-task-description').value = '';
             document.querySelector('#my-task-message').innerHTML = '';
-            enqueueSpeech('What quests have you completed, sir?');
+            awaitingQuestDictationConfirmation = false;
+            questDictationActive = false;
+
+            enqueueSpeech('What quests have you completed, sir?', function() {
+                enqueueSpeech('Do you want me to write your quest, sir?', function() {
+                    awaitingQuestDictationConfirmation = true;
+                });
+            });
         }
 
         document.querySelector('#my-task-btn').addEventListener('click', openMyTask);
 
         document.querySelector('#my-task-cancel').addEventListener('click', function() {
+            questDictationActive = false;
             myTaskModal.hidePopover();
         });
+
+        // Sends one freshly-dictated chunk (raw-case, not the lowercased
+        // transcript used for command matching) to the System to fix
+        // mis-heard homophones/grammar against what's already in the
+        // textarea, then appends the corrected version. Falls back to the
+        // raw heard text on failure so dictation still makes progress
+        // instead of silently dropping what was said.
+        function appendDictatedQuest(rawText) {
+            let textarea = document.querySelector('#my-task-description');
+            let context = textarea.value;
+
+            $.ajax({
+                url: '/voice/correct-dictation'
+                , type: 'POST'
+                , data: {
+                    context: context
+                    , text: rawText
+                }
+                , dataType: 'json'
+                , success: function(response) {
+                    textarea.value = context ? (context + ' ' + response.text) : response.text;
+                }
+                , error: function() {
+                    textarea.value = context ? (context + ' ' + rawText) : rawText;
+                }
+            });
+        }
 
         function renderTaskReview(review) {
             document.querySelector('#my-task-review-summary').textContent = review.summary;
@@ -745,6 +782,7 @@
         }
 
         document.querySelector('#my-task-proceed').addEventListener('click', function() {
+            questDictationActive = false;
             let description = document.querySelector('#my-task-description').value.trim();
             let msg = document.querySelector('#my-task-message');
 
@@ -1866,7 +1904,38 @@
             });
         }
 
-        function handleVoiceCommand(text) {
+        function handleVoiceCommand(text, rawText) {
+            // While Nova is taking dictation for My Task's "Your Quest"
+            // textarea, everything heard is quest content, not a command —
+            // except "proceed", which ends dictation and submits, exactly
+            // like clicking Proceed. Checked before every other branch below
+            // so dictated sentences can't accidentally trigger unrelated
+            // commands (e.g. saying "open shop" while describing a workout).
+            if (questDictationActive) {
+                if (hasWord(text, 'proceed')) {
+                    questDictationActive = false;
+                    return document.querySelector('#my-task-proceed').click();
+                }
+                return appendDictatedQuest(rawText);
+            }
+
+            // "Do you want me to write your quest, sir?" — "yes" starts
+            // dictation (see questDictationActive above); "no" leaves the
+            // Hunter to type it themselves, same as today.
+            if (awaitingQuestDictationConfirmation) {
+                if (hasWord(text, 'yes')) {
+                    awaitingQuestDictationConfirmation = false;
+                    return enqueueSpeech('Go ahead, sir.', function() {
+                        questDictationActive = true;
+                    });
+                }
+                if (hasWord(text, 'no')) {
+                    awaitingQuestDictationConfirmation = false;
+                    return enqueueSpeech('Understood, sir.');
+                }
+                return;
+            }
+
             // Right after "Friday, may I ask?" — only "reference"/
             // "suggestion" mean anything here, everything else is ignored.
             if (awaitingAskMode) {
@@ -2183,9 +2252,15 @@
 
             voiceRecognition.addEventListener('result', function(event) {
                 let last = event.results[event.results.length - 1];
-                let transcript = last[0].transcript.toLowerCase().trim();
+                // Original casing is kept alongside the lowercased transcript
+                // — command matching (hasWord/.includes()) relies on the
+                // lowercased text, but dictating into My Task's textarea
+                // (see handleVoiceCommand's questDictationActive branch)
+                // needs real casing, not everything flattened to lowercase.
+                let rawTranscript = last[0].transcript.trim();
+                let transcript = rawTranscript.toLowerCase();
                 voiceText.textContent = 'Heard: "' + transcript + '"';
-                handleVoiceCommand(transcript);
+                handleVoiceCommand(transcript, rawTranscript);
             });
 
             voiceRecognition.addEventListener('end', function() {

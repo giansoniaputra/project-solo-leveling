@@ -319,4 +319,51 @@ class VoiceController extends Controller
 
         return response()->json(['text' => $text]);
     }
+
+    /**
+     * Cleans up one newly-dictated chunk of the "My Task" quest description
+     * (see MyTaskController) while it's being spoken — speech recognition
+     * regularly mishears homophones (e.g. "four" heard as "for"), so this
+     * uses whatever's already been written as context to fix the new chunk
+     * before it's appended to the textarea.
+     */
+    public function correctDictation(Request $request)
+    {
+        $data = $request->validate([
+            'context' => 'nullable|string|max:4000',
+            'text' => 'required|string|max:1000',
+        ]);
+
+        $context = $data['context'] ?? '';
+
+        $client = \OpenAI::client(config('services.openai.key'));
+
+        $prompt = <<<PROMPT
+        Already written so far: "{$context}"
+        Newly dictated (raw, possibly mis-heard by speech recognition): "{$data['text']}"
+        PROMPT;
+
+        try {
+            $response = $client->chat()->create([
+                'model' => 'gpt-4o-mini',
+                'messages' => [
+                    ['role' => 'system', 'content' => 'You are cleaning up a live speech-to-text dictation. Fix only obvious mishearings/homophones (e.g. "for" heard instead of "four", "to" instead of "two") and grammar so the new text reads naturally as a continuation of what\'s already written, using the existing text only as context — do not repeat it back. Keep the same meaning and roughly the same length as the newly dictated text. Reply with ONLY the corrected sentence itself in plain text — no surrounding quotation marks, no markdown, nothing else.'],
+                    ['role' => 'user', 'content' => $prompt],
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed to correct dictation: '.$e->getMessage()], 502);
+        }
+
+        $text = trim($response->choices[0]->message->content ?? '');
+        // Defensive cleanup: strip a stray wrapping quote pair if the model
+        // added one despite being told not to.
+        $text = trim($text, "\"'");
+
+        if ($text === '') {
+            return response()->json(['message' => 'Dictation correction failed.'], 502);
+        }
+
+        return response()->json(['text' => $text]);
+    }
 }
