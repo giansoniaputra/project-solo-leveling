@@ -31,8 +31,19 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
-    'openai' => [
-        'key' => env('OPENAI_API_KEY'),
+    'anthropic' => [
+        'key' => env('CLAUDE_API_KEY'),
+        'model' => env('CLAUDE_MODEL', 'claude-haiku-5-5'),
+    ],
+
+    // Text-to-speech (VoiceController::speak): Claude has no speech-synthesis
+    // API, so spoken replies come from Speaktor (Transkriptor developer API).
+    'speaktor' => [
+        'key' => env('TRANSKRIPTOR_API_KEY'),
+        'voice' => env('SPEAKTOR_VOICE_NAME', 'Amira'),
+        'language' => env('SPEAKTOR_LANGUAGE', 'id-ID'),
+        'speed' => env('SPEAKTOR_SPEED_RATE'),
+        'emotion' => env('SPEAKTOR_EMOTION'),
     ],
 
 ];

@@ -17,7 +17,7 @@ class QuestReviewService
      */
     public function review(User $user, string $description): array
     {
-        $client = \OpenAI::client(config('services.openai.key'));
+        $claude = new ClaudeService();
 
         $statsSummary = "STR {$user->str}, AGI {$user->agi}, PER {$user->per}, VIT {$user->vit}, INT {$user->intelligence}";
 
@@ -52,21 +52,34 @@ class QuestReviewService
         {"summary": "...", "exp_awarded": 120, "stats": {"str": 2, "agi": 0, "per": 0, "vit": 1, "intelligence": 0}}
         PROMPT;
 
+        $statProperties = [];
+        foreach (Quest::STATS as $stat) {
+            $statProperties[$stat] = ['type' => 'integer'];
+        }
+
         try {
-            $response = $client->chat()->create([
-                'model' => 'gpt-4o-mini',
-                'response_format' => ['type' => 'json_object'],
-                'messages' => [
-                    ['role' => 'system', 'content' => 'You are "The System" from Solo Leveling. Always reply with valid JSON in the requested format.'],
-                    ['role' => 'user', 'content' => $prompt],
+            $data = $claude->json(
+                'You are "The System" from Solo Leveling. Always reply with valid JSON in the requested format.',
+                $prompt,
+                [
+                    'type' => 'object',
+                    'properties' => [
+                        'summary' => ['type' => 'string'],
+                        'exp_awarded' => ['type' => 'integer'],
+                        'stats' => [
+                            'type' => 'object',
+                            'properties' => $statProperties,
+                            'required' => Quest::STATS,
+                            'additionalProperties' => false,
+                        ],
+                    ],
+                    'required' => ['summary', 'exp_awarded', 'stats'],
+                    'additionalProperties' => false,
                 ],
-            ]);
+            );
         } catch (\Throwable $e) {
             throw new RuntimeException('Failed to reach the System (AI): ' . $e->getMessage(), previous: $e);
         }
-
-        $content = $response->choices[0]->message->content ?? null;
-        $data = json_decode((string) $content, true);
 
         if (! is_array($data) || empty($data['summary'])) {
             throw new RuntimeException('The System could not evaluate this report.');

@@ -10,14 +10,14 @@ use RuntimeException;
 class QuestGeneratorService
 {
     /**
-     * Generate quests for the given user via OpenAI and persist them.
+     * Generate quests for the given user via Claude and persist them.
      *
      * @param  string|null  $stat  Required for 'main' quests: which stat (Quest::STATS) to train.
      * @return Collection<int, Quest>
      */
     public function generate(User $user, string $type, ?string $stat = null): Collection
     {
-        $client = \OpenAI::client(config('services.openai.key'));
+        $claude = new ClaudeService();
 
         $profile = $user->weight && $user->height && $user->age
             ? "Weight: {$user->weight} kg, Height: {$user->height} cm, Age: {$user->age} years."
@@ -67,20 +67,34 @@ class QuestGeneratorService
         PROMPT;
 
         try {
-            $response = $client->chat()->create([
-                'model' => 'gpt-4o-mini',
-                'response_format' => ['type' => 'json_object'],
-                'messages' => [
-                    ['role' => 'system', 'content' => 'You are "The System" from Solo Leveling. Always reply with valid JSON in the requested format.'],
-                    ['role' => 'user', 'content' => $prompt],
+            $data = $claude->json(
+                'You are "The System" from Solo Leveling. Always reply with valid JSON in the requested format.',
+                $prompt,
+                [
+                    'type' => 'object',
+                    'properties' => [
+                        'quests' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'title' => ['type' => 'string'],
+                                    'description' => ['type' => 'string'],
+                                    'exp_reward' => ['type' => 'integer'],
+                                    'stat_reward' => ['type' => 'integer'],
+                                ],
+                                'required' => ['title', 'description', 'exp_reward', 'stat_reward'],
+                                'additionalProperties' => false,
+                            ],
+                        ],
+                    ],
+                    'required' => ['quests'],
+                    'additionalProperties' => false,
                 ],
-            ]);
+            );
         } catch (\Throwable $e) {
             throw new RuntimeException('Failed to reach the System (AI): ' . $e->getMessage(), previous: $e);
         }
-
-        $content = $response->choices[0]->message->content ?? null;
-        $data = json_decode((string) $content, true);
 
         if (! is_array($data) || empty($data['quests'])) {
             throw new RuntimeException('The System did not return a valid quest.');

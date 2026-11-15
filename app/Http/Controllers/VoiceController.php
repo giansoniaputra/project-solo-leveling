@@ -3,63 +3,38 @@
 namespace App\Http\Controllers;
 
 use App\Models\Conversation;
+use App\Services\ClaudeService;
+use App\Services\SpeaktorService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
 class VoiceController extends Controller
 {
-    private const VOICE = 'nova';
-
-    private const SPEED = 0.85;
-
     private const CONVERSATIONS_PER_PAGE = 10;
 
     /**
-     * Synthesizes "The System"'s spoken replies via OpenAI TTS. Identical
-     * phrases are cached on disk (keyed by text + voice + speed, so changing
-     * either setting doesn't serve stale audio) so repeat lines (like the
-     * "you up?" easter egg) don't re-hit the API every time.
+     * Synthesizes "The System"'s spoken replies via Speaktor TTS (Claude has
+     * no speech-synthesis API). Identical phrases are cached on disk (keyed by
+     * text + voice/language/speed/emotion, so changing a setting doesn't serve
+     * stale audio) so repeat lines (like the "you up?" easter egg) don't
+     * re-hit the API every time. On failure the frontend falls back to the
+     * browser's own voice.
      */
-    public function speak(Request $request)
+    public function speak(Request $request, SpeaktorService $speaktor)
     {
         $data = $request->validate([
             // Long enough for a full "ask" answer paragraph or its Indonesian
-            // translation — OpenAI TTS itself accepts up to ~4096 chars, so
-            // this stays well under that. Previously capped at 500, which
-            // silently fell back to the robotic browser voice for anything
-            // longer (the validation failure was swallowed by the frontend's
-            // error handler instead of surfacing as an obvious bug).
+            // translation. Long text is chunked inside SpeaktorService.
             'text' => 'required|string|max:2000',
         ]);
 
-        $path = 'voice-cache/'.md5($data['text'].'|'.self::VOICE.'|'.self::SPEED).'.mp3';
+        $path = 'voice-cache/'.md5($data['text'].'|'.$speaktor->fingerprint()).'.mp3';
 
         if (! Storage::disk('local')->exists($path)) {
-            $client = \OpenAI::client(config('services.openai.key'));
-
             try {
-                $audio = $client->audio()->speech([
-                    'model' => 'tts-1',
-                    'voice' => self::VOICE,
-                    'input' => $data['text'],
-                    'response_format' => 'mp3',
-                    'speed' => self::SPEED,
-                ]);
+                $audio = $speaktor->synthesize($data['text']);
             } catch (\Throwable $e) {
                 return response()->json(['message' => 'Failed to synthesize speech: '.$e->getMessage()], 502);
-            }
-
-            // The SDK's audio endpoint returns the raw response body as-is
-            // without validating it's actually audio — an API error (e.g. an
-            // invalid key) comes back as a JSON string here instead of
-            // throwing, and would otherwise get cached and served as a
-            // "successful" empty/broken mp3 forever. A real mp3 never starts
-            // with '{', so this is a cheap, reliable way to catch that.
-            if (str_starts_with(ltrim($audio), '{')) {
-                $message = json_decode($audio, true)['error']['message'] ?? 'Unknown error';
-
-                return response()->json(['message' => 'Failed to synthesize speech: '.$message], 502);
             }
 
             Storage::disk('local')->put($path, $audio);
@@ -95,21 +70,14 @@ class VoiceController extends Controller
         Reply with ONLY the spoken text, no labels, no markdown, no numbered list.
         PROMPT;
 
-        $client = \OpenAI::client(config('services.openai.key'));
-
         try {
-            $response = $client->chat()->create([
-                'model' => 'gpt-4o-mini',
-                'messages' => [
-                    ['role' => 'system', 'content' => 'You are "The System" from Solo Leveling. Reply with plain spoken text only, nothing else.'],
-                    ['role' => 'user', 'content' => $prompt],
-                ],
-            ]);
+            $text = (new ClaudeService())->text(
+                'You are "The System" from Solo Leveling. Reply with plain spoken text only, nothing else.',
+                $prompt,
+            );
         } catch (\Throwable $e) {
             return response()->json(['message' => 'Failed to summarize status: '.$e->getMessage()], 502);
         }
-
-        $text = trim($response->choices[0]->message->content ?? '');
 
         if ($text === '') {
             return response()->json(['message' => 'The System had nothing to say.'], 502);
@@ -120,10 +88,8 @@ class VoiceController extends Controller
 
     /**
      * "Friday, may I ask?" flow: answers an open-ended question with a real
-     * web search + citation. The installed openai-php/client SDK has no
-     * Responses API resource, so this calls it directly over HTTP with the
-     * web_search_preview tool (verified against the live API — returns
-     * genuine, dated, cited answers, not hallucinated sources).
+     * web search + citation, using Claude's server-side web_search tool
+     * (returns real, dated, cited answers rather than invented sources).
      */
     public function ask(Request $request)
     {
@@ -145,26 +111,15 @@ class VoiceController extends Controller
         PROMPT;
 
         try {
-            $response = Http::withToken(config('services.openai.key'))
-                ->timeout(30)
-                ->post('https://api.openai.com/v1/responses', [
-                    'model' => 'gpt-4o-mini',
-                    'tools' => [['type' => 'web_search_preview']],
-                    'tool_choice' => ['type' => 'web_search_preview'],
-                    'input' => $prompt,
-                ]);
+            $result = (new ClaudeService())->searchWeb(
+                'You are "The System" from Solo Leveling. Always search the web before answering, and reply with plain spoken text only.',
+                $prompt,
+            );
         } catch (\Throwable $e) {
             return response()->json(['message' => 'Failed to reach the System (AI): '.$e->getMessage()], 502);
         }
 
-        if (! $response->successful()) {
-            return response()->json(['message' => 'The System could not find an answer.'], 502);
-        }
-
-        $message = collect($response->json('output', []))
-            ->firstWhere('type', 'message');
-
-        $answer = trim($message['content'][0]['text'] ?? '');
+        $answer = $result['answer'];
 
         // Defensive cleanup: strip any inline "([title](url))" citation
         // markdown the model included despite being told not to — it reads
@@ -175,23 +130,20 @@ class VoiceController extends Controller
             return response()->json(['message' => 'The System did not return an answer.'], 502);
         }
 
-        $citation = collect($message['content'][0]['annotations'] ?? [])
-            ->firstWhere('type', 'url_citation');
-
         $conversation = Conversation::create([
             'user_id' => $request->user()->id,
             'question' => $data['question'],
             'answer' => $answer,
             'mode' => 'reference',
-            'source_title' => $citation['title'] ?? null,
-            'source_url' => $citation['url'] ?? null,
+            'source_title' => $result['source_title'],
+            'source_url' => $result['source_url'],
         ]);
 
         return response()->json([
             'conversation_id' => $conversation->id,
             'answer' => $answer,
-            'source_title' => $citation['title'] ?? null,
-            'source_url' => $citation['url'] ?? null,
+            'source_title' => $result['source_title'],
+            'source_url' => $result['source_url'],
         ]);
     }
 
@@ -221,21 +173,14 @@ class VoiceController extends Controller
         no markdown, no bullet lists, no headings, just your direct suggestion.
         PROMPT;
 
-        $client = \OpenAI::client(config('services.openai.key'));
-
         try {
-            $response = $client->chat()->create([
-                'model' => 'gpt-4o-mini',
-                'messages' => [
-                    ['role' => 'system', 'content' => 'You are "The System" from Solo Leveling, giving your own direct opinion — never claim to have searched anything.'],
-                    ['role' => 'user', 'content' => $prompt],
-                ],
-            ]);
+            $answer = (new ClaudeService())->text(
+                'You are "The System" from Solo Leveling, giving your own direct opinion — never claim to have searched anything.',
+                $prompt,
+            );
         } catch (\Throwable $e) {
             return response()->json(['message' => 'Failed to reach the System (AI): '.$e->getMessage()], 502);
         }
-
-        $answer = trim($response->choices[0]->message->content ?? '');
 
         if ($answer === '') {
             return response()->json(['message' => 'The System had nothing to suggest.'], 502);
@@ -297,21 +242,14 @@ class VoiceController extends Controller
 
         $languageName = $data['target_language'] === 'id' ? 'Bahasa Indonesia' : 'English';
 
-        $client = \OpenAI::client(config('services.openai.key'));
-
         try {
-            $response = $client->chat()->create([
-                'model' => 'gpt-4o-mini',
-                'messages' => [
-                    ['role' => 'system', 'content' => "Translate the user's text into {$languageName}. Keep it natural and concise, suitable for text-to-speech. Reply with ONLY the translated text, nothing else."],
-                    ['role' => 'user', 'content' => $data['text']],
-                ],
-            ]);
+            $text = (new ClaudeService())->text(
+                "Translate the user's text into {$languageName}. Keep it natural and concise, suitable for text-to-speech. Reply with ONLY the translated text, nothing else.",
+                $data['text'],
+            );
         } catch (\Throwable $e) {
             return response()->json(['message' => 'Failed to translate: '.$e->getMessage()], 502);
         }
-
-        $text = trim($response->choices[0]->message->content ?? '');
 
         if ($text === '') {
             return response()->json(['message' => 'Translation failed.'], 502);
@@ -336,26 +274,20 @@ class VoiceController extends Controller
 
         $context = $data['context'] ?? '';
 
-        $client = \OpenAI::client(config('services.openai.key'));
-
         $prompt = <<<PROMPT
         Already written so far: "{$context}"
         Newly dictated (raw, possibly mis-heard by speech recognition): "{$data['text']}"
         PROMPT;
 
         try {
-            $response = $client->chat()->create([
-                'model' => 'gpt-4o-mini',
-                'messages' => [
-                    ['role' => 'system', 'content' => 'You are cleaning up a live speech-to-text dictation. Fix only obvious mishearings/homophones (e.g. "for" heard instead of "four", "to" instead of "two") and grammar so the new text reads naturally as a continuation of what\'s already written, using the existing text only as context — do not repeat it back. Keep the same meaning and roughly the same length as the newly dictated text. Reply with ONLY the corrected sentence itself in plain text — no surrounding quotation marks, no markdown, nothing else.'],
-                    ['role' => 'user', 'content' => $prompt],
-                ],
-            ]);
+            $text = (new ClaudeService())->text(
+                'You are cleaning up a live speech-to-text dictation. Fix only obvious mishearings/homophones (e.g. "for" heard instead of "four", "to" instead of "two") and grammar so the new text reads naturally as a continuation of what\'s already written, using the existing text only as context — do not repeat it back. Keep the same meaning and roughly the same length as the newly dictated text. Reply with ONLY the corrected sentence itself in plain text — no surrounding quotation marks, no markdown, nothing else.',
+                $prompt,
+            );
         } catch (\Throwable $e) {
             return response()->json(['message' => 'Failed to correct dictation: '.$e->getMessage()], 502);
         }
 
-        $text = trim($response->choices[0]->message->content ?? '');
         // Defensive cleanup: strip a stray wrapping quote pair if the model
         // added one despite being told not to.
         $text = trim($text, "\"'");
